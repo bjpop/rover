@@ -5,6 +5,8 @@ import logging
 import sys
 import pysam
 import re
+import os
+from operator import itemgetter
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -15,14 +17,16 @@ def parse_args():
         help='primer coordinates')
     parser.add_argument(
         '--overlap', type=float, default=0.5,
-        help='minimum percentage overlap of read to amplicon region')
+        help='minimum percentage overlap of read to block region')
     parser.add_argument(
-        'bam', type=str, help='bam file containing mapped reads')
+        'bams', nargs='+', type=str, help='bam files containing mapped reads')
     parser.add_argument( '--log', metavar='FILE', type=str,
         help='log progress in FILENAME, defaults to stdout')
+    parser.add_argument( '--vcf', metavar='FILE', type=str,
+        required=True, help='name of output VCF file')
     return parser.parse_args() 
 
-def get_amplicon_coords(primers_file):
+def get_block_coords(primers_file):
     windows = {}
     with open(primers_file) as primers:
         for line in primers:
@@ -54,15 +58,21 @@ def get_amplicon_coords(primers_file):
 
 def lookup_reads(min_overlap, bam, chr, start_col, end_col):
     # arguments are in zero-based indices
+    total_reads = 0
+    overlapping_reads = 0
     read_pairs = {}
     for read in bam.fetch(chr, start_col, end_col+1):
-        # only keep reads which overlap with the amplicon region by a certain percentage
+        total_reads += 1
+        # only keep reads which overlap with the block region by a certain percentage
         overlap = percent_overlap(start_col, end_col, read) 
         if overlap > min_overlap:
+            overlapping_reads += 1
             if read.qname not in read_pairs:
                 read_pairs[read.qname] = [read]
             else:
                 read_pairs[read.qname].append(read)
+    logging.info("number of reads intersecting block: {}".format(total_reads))
+    logging.info("number of reads sufficiently overlapping block: {}".format(overlapping_reads))
     return read_pairs
 
 def get_MD(read):
@@ -157,6 +167,17 @@ class SNV(object):
         return "S: {} {} {} {}".format(self.chr, self.pos, self.ref_base, self.seq_base)
     def __repr__(self):
         return str(self)
+    def as_tuple(self):
+        return (self.chr, self.pos, self.ref_base, self.seq_base)
+    def __hash__(self):
+        return hash(self.as_tuple())
+    def __eq__(self, other):
+        return self.as_tuple() == other.as_tuple()
+    def ref(self):
+        return self.ref_base
+    def alt(self):
+        return self.seq_base
+
 
 class Insertion(object):
     def __init__(self, chr, pos, inserted_bases):
@@ -167,6 +188,16 @@ class Insertion(object):
         return "I: {} {} {}".format(self.chr, self.pos, self.inserted_bases)
     def __repr__(self):
         return str(self)
+    def as_tuple(self):
+        return (self.chr, self.pos, self.inserted_bases)
+    def __hash__(self):
+        return hash(self.as_tuple())
+    def __eq__(self, other):
+        return self.as_tuple() == other.as_tuple()
+    def ref(self):
+        return '.'
+    def alt(self):
+        return self.inserted_bases
 
 class Deletion(object):
     def __init__(self, chr, pos, deleted_bases):
@@ -177,7 +208,16 @@ class Deletion(object):
         return "D: {} {} {}".format(self.chr, self.pos, self.deleted_bases)
     def __repr__(self):
         return str(self)
-
+    def as_tuple(self):
+        return (self.chr, self.pos, self.deleted_bases)
+    def __hash__(self):
+        return hash(self.as_tuple())
+    def __eq__(self, other):
+        return self.as_tuple() == other.as_tuple()
+    def ref(self):
+        return self.deleted_bases
+    def alt(self):
+        return '.'
 
 class MD_match(object):
     def __init__(self, size):
@@ -236,17 +276,79 @@ def parse_md_del(md, result):
             return parse_md(md, result + [MD_deletion(ref_bases)])
     return result
 
-def percent_overlap(amplicon_start, amplicon_end, read):
+def percent_overlap(block_start, block_end, read):
     # XXX not sure about indels
     read_end = read.pos + read.rlen - 1
-    if read_end < amplicon_start or read.pos > amplicon_end:
+    if read_end < block_start or read.pos > block_end:
         # they don't overlap
         return 0.0
     else:
-        overlap_start = max(amplicon_start, read.pos)
-        overlap_end = min(amplicon_end, read_end)
+        overlap_start = max(block_start, read.pos)
+        overlap_end = min(block_end, read_end)
         overlap_size = overlap_end - overlap_start + 1
         return float(overlap_size) / read.rlen
+
+
+def process_blocks(args, vcf, bam, sample, block_coords):
+    coverage_info = []
+    for chr, start, end in block_coords:
+        logging.info("processing block chr: {}, start: {}, end: {}".format(chr, start, end))
+        # process all the reads in one block
+        block_vars = {}
+        num_pairs = 0
+        read_pairs = lookup_reads(args.overlap, bam, chr, int(start), int(end))
+        for read_name, reads in read_pairs.items():
+            if len(reads) == 1:
+                logging.warning("read {} with no pair".format(read_name))
+            elif len(reads) == 2:
+                num_pairs += 1
+                read1, read2 = reads
+                variants1 = read_variants(read1.qname, chr, read1.pos + 1, read1.query, read1.cigar, parse_md(get_MD(read1), []))
+                variants2 = read_variants(read2.qname, chr, read2.pos + 1, read2.query, read2.cigar, parse_md(get_MD(read2), []))
+                set_variants1 = set(variants1)
+                set_variants2 = set(variants2)
+                # find the variants each read in the pair share in common
+                same_variants = set_variants1.intersection(set_variants2)
+                for var in same_variants:
+                    if var in block_vars:
+                        block_vars[var] += 1
+                    else:
+                        block_vars[var] = 1
+            else:
+                logging.warning("read {} with more than 2".format(read_name))
+        logging.info("number of read pairs in block: {}".format(num_pairs))
+        logging.info("number of variants found in block: {}".format(len(block_vars)))
+        for var in block_vars:
+            num_vars = block_vars[var]
+            percent = (float(num_vars) / num_pairs) * 100
+            percent_str = "{:.2f}".format(percent)
+            vcf.write('\t'.join([var.chr, str(var.pos), '.',
+                                 var.ref(), var.alt(), '.', '.',
+                                 sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
+        coverage_info.append((chr, start, end, num_pairs))
+    with open(sample + '.coverage', 'w') as coverage_file:
+        coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\n')
+        for chr, start, end, num_pairs in sorted(coverage_info, key=itemgetter(3)):
+            coverage_file.write('{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs))
+
+
+
+vcf_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "NUM_PAIRS_WITH_VAR", "NUM_PAIRS_AT_POS", "PERCENT"])
+
+def process_bams(args):
+    block_coords = list(get_block_coords(args.primers))
+    with open(args.vcf, "w") as vcf:
+        vcf.write(vcf_header + '\n')
+        for bam_filename in args.bams:
+            base = os.path.basename(bam_filename)
+            sample = base.split('.')
+            if len(sample) > 0:
+                sample = sample[0]
+            else:
+                exit('Cannot deduce sample name from bam filename {}'.format(bam_filename))
+            with pysam.Samfile(bam_filename, "rb") as bam:
+                logging.info("processing bam file {}".format(bam_filename))
+                process_blocks(args, vcf, bam, sample, block_coords)
 
 def main():
     args = parse_args()
@@ -262,21 +364,8 @@ def main():
         datefmt='%m/%d/%Y %H:%M:%S')
     logging.info('program started')
     logging.info('command line: {0}'.format(' '.join(sys.argv)))
-    with pysam.Samfile(args.bam, "rb") as bam:
-        for chr, start, end in get_amplicon_coords(args.primers):
-            read_pairs = lookup_reads(args.overlap, bam, chr, int(start), int(end))
-            for read_name, reads in read_pairs.items():
-                if len(reads) == 1:
-                    logging.info("read {} with no pair".format(read_name))
-                elif len(reads) == 2:
-                    read1, read2 = reads
-                    variants1 = read_variants(read1.qname, chr, read1.pos + 1, read1.query, read1.cigar, parse_md(get_MD(read1), []))
-                    variants2 = read_variants(read2.qname, chr, read2.pos + 1, read2.query, read2.cigar, parse_md(get_MD(read2), []))
-                    print("read {}".format(read_name))
-                    print("vars1: {}".format(variants1))
-                    print("vars2: {}".format(variants2))
-                else:
-                    logging.info("read {} with more than 2".format(read_name))
+    process_bams(args)
+
 
 
 if __name__ == '__main__':
