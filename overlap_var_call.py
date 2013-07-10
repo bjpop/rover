@@ -24,6 +24,9 @@ def parse_args():
         help='log progress in FILENAME, defaults to stdout')
     parser.add_argument( '--vcf', metavar='FILE', type=str,
         required=True, help='name of output VCF file')
+    parser.add_argument( '--threshold', metavar='N', type=float,
+        default=5.0,
+        required=True, help='keep variants above this percentage threshold, bin below')
     return parser.parse_args() 
 
 def get_block_coords(primers_file):
@@ -325,10 +328,11 @@ def process_blocks(args, vcf, bam, sample, block_coords):
         for var in block_vars:
             num_vars = block_vars[var]
             percent = (float(num_vars) / num_pairs) * 100
-            percent_str = "{:.2f}".format(percent)
-            vcf.write('\t'.join([var.chr, str(var.pos), '.',
-                                 var.ref(), var.alt(), '.', '.',
-                                 sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
+            if percent >= args.threshold:
+                percent_str = "{:.2f}".format(percent)
+                vcf.write('\t'.join([var.chr, str(var.pos), '.',
+                                     var.ref(), var.alt(), '.', '.',
+                                     sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
         coverage_info.append((chr, start, end, num_pairs))
     with open(sample + '.coverage', 'w') as coverage_file:
         coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\n')
