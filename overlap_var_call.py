@@ -136,7 +136,7 @@ def read_variants(name, chr, pos, aligned_bases, cigar, md):
                 exit()
         elif cigar_code == 1: 
             # Insertion
-            seq_bases = aligned_bases[seq_index:seq_index + cigar_segment_extent + 1]
+            seq_bases = aligned_bases[seq_index:seq_index + cigar_segment_extent]
             result.append(Insertion(chr, pos, seq_bases))
             cigar = cigar[1:]
             seq_index += cigar_segment_extent
