@@ -292,11 +292,13 @@ def percent_overlap(block_start, block_end, read):
 def process_blocks(args, vcf, bam, sample, block_coords):
     coverage_info = []
     for chr, start, end in block_coords:
+        start = int(start)
+        end = int(end)
         logging.info("processing block chr: {}, start: {}, end: {}".format(chr, start, end))
         # process all the reads in one block
         block_vars = {}
         num_pairs = 0
-        read_pairs = lookup_reads(args.overlap, bam, chr, int(start), int(end))
+        read_pairs = lookup_reads(args.overlap, bam, chr, start, end)
         for read_name, reads in read_pairs.items():
             if len(reads) == 1:
                 logging.warning("read {} with no pair".format(read_name))
@@ -310,10 +312,12 @@ def process_blocks(args, vcf, bam, sample, block_coords):
                 # find the variants each read in the pair share in common
                 same_variants = set_variants1.intersection(set_variants2)
                 for var in same_variants:
-                    if var in block_vars:
-                        block_vars[var] += 1
-                    else:
-                        block_vars[var] = 1
+                    # only consider variants within the bounds of the block
+                    if var.pos >= start and var.pos <= end:
+                        if var in block_vars:
+                            block_vars[var] += 1
+                        else:
+                            block_vars[var] = 1
             else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
