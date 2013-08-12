@@ -22,11 +22,14 @@ def parse_args():
         'bams', nargs='+', type=str, help='bam files containing mapped reads')
     parser.add_argument( '--log', metavar='FILE', type=str,
         help='log progress in FILENAME, defaults to stdout')
-    parser.add_argument( '--vcf', metavar='FILE', type=str,
+    parser.add_argument('--vcf', metavar='FILE', type=str,
         required=True, help='name of output VCF file')
-    parser.add_argument( '--threshold', metavar='N', type=float,
+    parser.add_argument('--threshold', metavar='N', type=float,
         default=5.0,
         required=True, help='keep variants above this percentage threshold, bin below')
+    parser.add_argument('--coverdir',
+        required=False,
+        help='directory to write coverage files, defaults to current working directory')
     return parser.parse_args() 
 
 def get_block_coords(primers_file):
@@ -338,7 +341,10 @@ def process_blocks(args, vcf, vcf_binned, bam, sample, block_coords):
                                      var.ref(), var.alt(), '.', '.',
                                      sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
         coverage_info.append((chr, start, end, num_pairs))
-    with open(sample + '.coverage', 'w') as coverage_file:
+    coverage_filename = sample + '.coverage'
+    if args.coverdir is not None:
+        coverage_filename = os.path.join(args.coverdir, coverage_filename)
+    with open(coverage_filename, 'w') as coverage_file:
         coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\n')
         for chr, start, end, num_pairs in sorted(coverage_info, key=itemgetter(3)):
             coverage_file.write('{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs))
