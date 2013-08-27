@@ -24,9 +24,12 @@ def parse_args():
         help='log progress in FILENAME, defaults to stdout')
     parser.add_argument('--vcf', metavar='FILE', type=str,
         required=True, help='name of output VCF file')
-    parser.add_argument('--threshold', metavar='N', type=float,
+    parser.add_argument('--percentthresh', metavar='N', type=float,
         default=5.0,
-        required=True, help='keep variants above this percentage threshold, bin below')
+        help='keep variants above this percentage threshold, bin below')
+    parser.add_argument('--absthresh', metavar='N', type=int,
+        default=2,
+        help='only keep variants which appear in at least this many read pairs')
     parser.add_argument('--coverdir',
         required=False,
         help='directory to write coverage files, defaults to current working directory')
@@ -332,7 +335,7 @@ def process_blocks(args, vcf, vcf_binned, bam, sample, block_coords):
             num_vars = block_vars[var]
             percent = (float(num_vars) / num_pairs) * 100
             percent_str = "{:.2f}".format(percent)
-            if percent >= args.threshold:
+            if num_vars >= args.absthresh and percent >= args.percentthresh:
                 vcf.write('\t'.join([var.chr, str(var.pos), '.',
                                      var.ref(), var.alt(), '.', '.',
                                      sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
