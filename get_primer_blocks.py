@@ -2,12 +2,12 @@
 
 '''
 A program to read the output of the primer design tool and
-produce a CSV file containing the coordinates of the primer
+produce a TSV file containing the coordinates of the primer
 blocks. Each primer block in the output is written as a triplet:
-chr,start,end
+chr,start,end (just like the BED file format).
 
 Example usage:
-./get_primer_blocks.py --primers data/PALB2_heeled.idt.log --out blocks.csv
+./get_primer_blocks.py --primers data/PALB2_heeled.idt.log --out blocks.tsv
 
 Authors: Bernie Pope (bjpope@unimelb.edu.au)
 Date: 22 September 2013
@@ -64,8 +64,7 @@ def main():
     else:
         outfile = open(args.out, 'w')
     with outfile:
-        writer = csv.writer(outfile)
-        writer.writerow(['chr','start','end'])
+        writer = csv.writer(outfile, delimiter='\t')
         for coord in get_block_coords(args.primers):
             writer.writerow(coord)
 
