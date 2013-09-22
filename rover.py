@@ -7,6 +7,7 @@ import pysam
 import re
 import os
 from operator import itemgetter
+import csv
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -35,35 +36,11 @@ def parse_args():
         help='directory to write coverage files, defaults to current working directory')
     return parser.parse_args() 
 
+
 def get_block_coords(primers_file):
-    windows = {}
     with open(primers_file) as primers:
-        for line in primers:
-            # we are starting a new exon
-            if line.startswith('chrom:'):
-                fields = line.split()
-                chr = fields[1].strip()
-            elif line.startswith('exon:'):
-                fields = line.split()
-                exon = fields[1].strip()
-            elif line.startswith('Best window:'):
-                fields = line.split()
-                window_start = fields[2][0:-1] # drop the comma at the end
-                best_blocks = windows[window_start]
-                for start, end in best_blocks:
-                    yield (chr, start, end)
-                windows = {}
-            elif line.startswith('Scoring window'):
-                fields = line.split()
-                window_start = fields[4]
-                windows[window_start] = []
-            elif line.startswith('block start:'):
-                fields = line.split()
-                block_start = fields[2].strip()
-            elif line.startswith('block end:'):
-                fields = line.split()
-                block_end = fields[2].strip()
-                windows[window_start].append((block_start, block_end))
+        return list(csv.reader(primers, delimiter='\t'))
+
 
 def lookup_reads(min_overlap, bam, chr, start_col, end_col):
     # arguments are in zero-based indices
@@ -357,7 +334,7 @@ def process_blocks(args, vcf, vcf_binned, bam, sample, block_coords):
 vcf_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "NUM_PAIRS_WITH_VAR", "NUM_PAIRS_AT_POS", "PERCENT"])
 
 def process_bams(args):
-    block_coords = list(get_block_coords(args.primers))
+    block_coords = get_block_coords(args.primers)
     with open(args.vcf, "w") as vcf, open(args.vcf + '.binned', "w") as vcf_binned:
         vcf.write(vcf_header + '\n')
         vcf_binned.write(vcf_header + '\n')
