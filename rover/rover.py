@@ -8,6 +8,7 @@ import re
 import os
 from operator import itemgetter
 import csv
+from version import rover_version
 
 default_minimum_read_overlap = 0.5
 default_percent_threshold = 5.0
@@ -17,6 +18,8 @@ def parse_args():
     "Consider mapped reads to amplicon sites"
 
     parser = ArgumentParser(description="Consider mapped reads to amplicon sites")
+    parser.add_argument(
+    '--version', action='version', version='%(prog)s ' + rover_version)
     parser.add_argument(
         '--primers', type=str, required=True,
         help='File name of primer coordinates in TSV format.')

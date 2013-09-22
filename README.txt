@@ -53,11 +53,20 @@ screening.
 Command line usage:
 --------------------------------------------------------------------------------
 
-rover [-h] --primers PRIMERS [--overlap OVERLAP] [--log FILE] --vcf
-           FILE [--percentthresh N] [--absthresh N] [--coverdir COVERDIR]
-           bams [bams ...]
+rover [-h] [--version] --primers PRIMERS [--overlap OVERLAP]
+      [--log FILE] --vcf FILE [--percentthresh N] [--absthresh N]
+      [--coverdir COVERDIR]
+      bams [bams ...]
 
 Explanation of the arguments:
+
+   -h
+
+      Print a help message and exit.
+
+   --version
+
+      Print the version number of rover and exit.
 
    --primers PRIMERS
 
