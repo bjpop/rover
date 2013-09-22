@@ -5,8 +5,8 @@ software for PCR-based massively parallel sequencing datasets
 
 Version: 1.0
 
-Authors: Bernard J Pope (2,3), Tú Nguyen-Dumont(1), Fleur Hammet (1) and
-         Daniel J Park(1)
+Authors: Bernard J Pope (2,3), Tú Nguyen-Dumont (1), Fleur Hammet (1) and
+         Daniel J Park (1)
 
          (1) Genetic Epidemiology Laboratory, Department of Pathology,
              The University of Melbourne.
