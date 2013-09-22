@@ -9,31 +9,39 @@ import os
 from operator import itemgetter
 import csv
 
+default_minimum_read_overlap = 0.5
+default_percent_threshold = 5.0
+default_absolute_threshold = 2
+
 def parse_args():
     "Consider mapped reads to amplicon sites"
 
     parser = ArgumentParser(description="Consider mapped reads to amplicon sites")
     parser.add_argument(
         '--primers', type=str, required=True,
-        help='primer coordinates')
+        help='File name of primer coordinates in TSV format.')
     parser.add_argument(
-        '--overlap', type=float, default=0.5,
-        help='minimum percentage overlap of read to block region')
+        '--overlap', type=float, default=default_minimum_read_overlap,
+        help='Minimum fraction overlap of read to block region. '
+             'Defaults to {}.'.format(default_minimum_read_overlap))
     parser.add_argument(
         'bams', nargs='+', type=str, help='bam files containing mapped reads')
     parser.add_argument( '--log', metavar='FILE', type=str,
-        help='log progress in FILENAME, defaults to stdout')
+        help='Log progress in FILENAME, defaults to stdout.')
     parser.add_argument('--vcf', metavar='FILE', type=str,
-        required=True, help='name of output VCF file')
+        required=True, help='Name of output VCF file.')
     parser.add_argument('--percentthresh', metavar='N', type=float,
-        default=5.0,
-        help='keep variants above this percentage threshold, bin below')
+        default=default_percent_threshold,
+        help='Keep variants which appear in this percentage of the read pairs for '
+             'a given target region, and bin otherwise. '
+             'Defaults to {}.'.format(default_percent_threshold))
     parser.add_argument('--absthresh', metavar='N', type=int,
-        default=2,
-        help='only keep variants which appear in at least this many read pairs')
+        default=default_absolute_threshold,
+        help='Only keep variants which appear in at least this many read pairs. '
+             'Defaults to {}.'.format(default_absolute_threshold))
     parser.add_argument('--coverdir',
         required=False,
-        help='directory to write coverage files, defaults to current working directory')
+        help='Directory to write coverage files, defaults to current working directory.')
     return parser.parse_args() 
 
 
