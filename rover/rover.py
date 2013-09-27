@@ -32,7 +32,7 @@ def parse_args():
         'bams', nargs='+', type=str, help='bam files containing mapped reads')
     parser.add_argument( '--log', metavar='FILE', type=str,
         help='Log progress in FILENAME, defaults to stdout.')
-    parser.add_argument('--vcf', metavar='FILE', type=str,
+    parser.add_argument('--out', metavar='FILE', type=str,
         required=True, help='Name of output VCF file.')
     parser.add_argument('--percentthresh', metavar='N', type=float,
         default=default_percent_threshold,
@@ -287,7 +287,7 @@ def percent_overlap(block_start, block_end, read):
         return float(overlap_size) / read.rlen
 
 
-def process_blocks(args, vcf, vcf_binned, bam, sample, block_coords):
+def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, block_coords):
     coverage_info = []
     for chr, start, end in block_coords:
         start = int(start)
@@ -325,11 +325,11 @@ def process_blocks(args, vcf, vcf_binned, bam, sample, block_coords):
             percent = (float(num_vars) / num_pairs) * 100
             percent_str = "{:.2f}".format(percent)
             if num_vars >= args.absthresh and percent >= args.percentthresh:
-                vcf.write('\t'.join([var.chr, str(var.pos), '.',
+                kept_variants_file.write('\t'.join([var.chr, str(var.pos), '.',
                                      var.ref(), var.alt(), '.', '.',
                                      sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
             else:
-                vcf_binned.write('\t'.join([var.chr, str(var.pos), '.',
+                binned_variants_file.write('\t'.join([var.chr, str(var.pos), '.',
                                      var.ref(), var.alt(), '.', '.',
                                      sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
         coverage_info.append((chr, start, end, num_pairs))
@@ -343,13 +343,14 @@ def process_blocks(args, vcf, vcf_binned, bam, sample, block_coords):
 
 
 
-vcf_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "NUM_PAIRS_WITH_VAR", "NUM_PAIRS_AT_POS", "PERCENT"])
+output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "NUM_PAIRS_WITH_VAR", "NUM_PAIRS_AT_POS", "PERCENT"])
 
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
-    with open(args.vcf, "w") as vcf, open(args.vcf + '.binned', "w") as vcf_binned:
-        vcf.write(vcf_header + '\n')
-        vcf_binned.write(vcf_header + '\n')
+    with open(args.out, "w") as kept_variants_file, \
+         open(args.out + '.binned', "w") as binned_variants_file:
+        kept_variants_file.write(output_header + '\n')
+        binned_variants_file.write(output_header + '\n')
         for bam_filename in args.bams:
             base = os.path.basename(bam_filename)
             sample = base.split('.')
@@ -359,7 +360,8 @@ def process_bams(args):
                 exit('Cannot deduce sample name from bam filename {}'.format(bam_filename))
             with pysam.Samfile(bam_filename, "rb") as bam:
                 logging.info("processing bam file {}".format(bam_filename))
-                process_blocks(args, vcf, vcf_binned, bam, sample, block_coords)
+                process_blocks(args, kept_variants_file,
+                               binned_variants_file, bam, sample, block_coords)
 
 def main():
     args = parse_args()
