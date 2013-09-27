@@ -193,7 +193,7 @@ class Insertion(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return '.'
+        return '-'
     def alt(self):
         return self.inserted_bases
 
@@ -215,7 +215,7 @@ class Deletion(object):
     def ref(self):
         return self.deleted_bases
     def alt(self):
-        return '.'
+        return '-'
 
 class MD_match(object):
     def __init__(self, size):
@@ -285,6 +285,10 @@ def proportion_overlap(block_start, block_end, read):
         overlap_size = overlap_end - overlap_start + 1
         return float(overlap_size) / read.rlen
 
+def write_variant(file, variant, sample):
+    file.write(
+        '\t'.join([variant.chr, str(variant.pos), str(variant.pos), variant.ref(),
+                   variant.alt(), "comments: " + sample]) + '\n')
 
 def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, block_coords):
     coverage_info = []
@@ -295,7 +299,8 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
         # process all the reads in one block
         block_vars = {}
         num_pairs = 0
-        read_pairs = lookup_reads(args.overlap, bam, chr, start, end)
+        # use 0 based coordinates to lookup reads from bam file
+        read_pairs = lookup_reads(args.overlap, bam, chr, start - 1, end - 1)
         for read_name, reads in read_pairs.items():
             if len(reads) == 1:
                 logging.warning("read {} with no pair".format(read_name))
@@ -324,13 +329,9 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
             proportion = float(num_vars) / num_pairs
             proportion_str = "{:.2f}".format(proportion)
             if num_vars >= args.absthresh and proportion >= args.proportionthresh:
-                kept_variants_file.write('\t'.join([var.chr, str(var.pos), '.',
-                                     var.ref(), var.alt(), '.', '.',
-                                     sample, str(num_vars), str(num_pairs), str(proportion_str)]) + '\n')
+                write_variant(kept_variants_file, var, sample)
             else:
-                binned_variants_file.write('\t'.join([var.chr, str(var.pos), '.',
-                                     var.ref(), var.alt(), '.', '.',
-                                     sample, str(num_vars), str(num_pairs), str(proportion_str)]) + '\n')
+                write_variant(binned_variants_file, var, sample)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     if args.coverdir is not None:
@@ -342,14 +343,14 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
 
 
 
-output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "NUM_PAIRS_WITH_VAR", "NUM_PAIRS_AT_POS", "PERCENT"])
+# output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "NUM_PAIRS_WITH_VAR", "NUM_PAIRS_AT_POS", "PERCENT"])
 
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
     with open(args.out, "w") as kept_variants_file, \
          open(args.out + '.binned', "w") as binned_variants_file:
-        kept_variants_file.write(output_header + '\n')
-        binned_variants_file.write(output_header + '\n')
+        #kept_variants_file.write(output_header + '\n')
+        #binned_variants_file.write(output_header + '\n')
         for bam_filename in args.bams:
             base = os.path.basename(bam_filename)
             sample = base.split('.')
