@@ -43,7 +43,7 @@ a given read-pair represents and removes the primer sequences by using the
  overlapping read-pairs with respect to primer-intervening sequence. Only 
 when a variant is observed in both reads of a read-pair does the signal 
 contribute to a tally of read-pairs containing or not containing the variant.
-A user-defined threshold informs the minimum number of and percentage of 
+A user-defined threshold informs the minimum number of and proportion of 
 read-pairs a variant must be observed in for a ‘call’ to be made. ROVER-PCR 
 Variant Caller also reports the depth of coverage across amplicons to 
 facilitate the identification of any regions that may require further
@@ -54,7 +54,7 @@ Command line usage:
 --------------------------------------------------------------------------------
 
 rover [-h] [--version] --primers PRIMERS [--overlap OVERLAP]
-      [--log FILE] --vcf FILE [--percentthresh N] [--absthresh N]
+      [--log FILE] --vcf FILE [--proportionthresh N] [--absthresh N]
       [--coverdir COVERDIR]
       bams [bams ...]
 
@@ -101,27 +101,27 @@ Explanation of the arguments:
       Name of the output VCF file created by Rover. This file contains the
       variants called by the program.
 
-   --percentthresh N
+   --proportionthresh N
 
-      Optional. Defaults to 5.0 percent.
+      Optional. Defaults to 5.0.
 
-      Only keep variants which appear in this percentage of the read pairs for
+      Only keep variants which appear in this proportion of the read pairs for
       a given target region, and bin otherwise. A variant must appear in
-      both reads of a pair to be counted. The percentage is calculated as
+      both reads of a pair to be counted. The proportion is calculated as
       follows:
 
           N = number of pairs containing this variant in both reads
           T = number of read pairs overlapping the target region
 
-          percentage = N/T * 100
+          proportion = N/T
 
 
-      Note: variants must pass BOTH the percentthresh and absthresh thresholds
+      Note: variants must pass BOTH the proportionthresh and absthresh thresholds
       to be kept. If they fail either test then they are binned.
 
       That is to say:
 
-          if (N/T) * 100 >= percentthresh and N >= absthresh:
+          if (N/T) * 100 >= proportionthresh and N >= absthresh:
               keep the variant
           else:
               bin the variant
@@ -133,7 +133,7 @@ Explanation of the arguments:
       Only keep variants which appear in at least this many read pairs
       for a given target region.
 
-      See comments above about percentthresh.
+      See comments above about proportionthresh.
  
    --coverdir COVERDIR
 
@@ -156,7 +156,7 @@ Example usage (should be all on one line)
 --------------------------------------------------------------------------------
 
    rover --primers primer_coords.tsv --log rover_log --vcf variants.vcf 
-         --percentthresh 15 --absthresh 2 --coverdir coverage_files
+         --proportionthresh 0.15 --absthresh 2 --coverdir coverage_files
          sample1.bam sample2.bam sample3.bam
 
 This assumes that the coordinates for your primer regions are in the file
