@@ -12,7 +12,7 @@ from version import rover_version
 
 # proportion of read which must overlap region of interest
 default_minimum_read_overlap = 0.9
-default_percent_threshold = 5.0
+default_proportion_threshold = 5.0
 default_absolute_threshold = 2
 
 def parse_args():
@@ -34,11 +34,11 @@ def parse_args():
         help='Log progress in FILENAME, defaults to stdout.')
     parser.add_argument('--out', metavar='FILE', type=str,
         required=True, help='Name of output VCF file.')
-    parser.add_argument('--percentthresh', metavar='N', type=float,
-        default=default_percent_threshold,
-        help='Keep variants which appear in this percentage of the read pairs for '
+    parser.add_argument('--proportionthresh', metavar='N', type=float,
+        default=default_proportion_threshold,
+        help='Keep variants which appear in this proportion of the read pairs for '
              'a given target region, and bin otherwise. '
-             'Defaults to {}.'.format(default_percent_threshold))
+             'Defaults to {}.'.format(default_proportion_threshold))
     parser.add_argument('--absthresh', metavar='N', type=int,
         default=default_absolute_threshold,
         help='Only keep variants which appear in at least this many read pairs. '
@@ -61,8 +61,8 @@ def lookup_reads(min_overlap, bam, chr, start_col, end_col):
     read_pairs = {}
     for read in bam.fetch(chr, start_col, end_col+1):
         total_reads += 1
-        # only keep reads which overlap with the block region by a certain percentage
-        overlap = percent_overlap(start_col, end_col, read) 
+        # only keep reads which overlap with the block region by a certain proportion
+        overlap = proportion_overlap(start_col, end_col, read) 
         if overlap > min_overlap:
             overlapping_reads += 1
             if read.qname not in read_pairs:
@@ -274,8 +274,7 @@ def parse_md_del(md, result):
             return parse_md(md, result + [MD_deletion(ref_bases)])
     return result
 
-def percent_overlap(block_start, block_end, read):
-    # XXX not sure about indels
+def proportion_overlap(block_start, block_end, read):
     read_end = read.pos + read.rlen - 1
     if read_end < block_start or read.pos > block_end:
         # they don't overlap
@@ -322,16 +321,16 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
         logging.info("number of variants found in block: {}".format(len(block_vars)))
         for var in block_vars:
             num_vars = block_vars[var]
-            percent = (float(num_vars) / num_pairs) * 100
-            percent_str = "{:.2f}".format(percent)
-            if num_vars >= args.absthresh and percent >= args.percentthresh:
+            proportion = float(num_vars) / num_pairs
+            proportion_str = "{:.2f}".format(proportion)
+            if num_vars >= args.absthresh and proportion >= args.proportionthresh:
                 kept_variants_file.write('\t'.join([var.chr, str(var.pos), '.',
                                      var.ref(), var.alt(), '.', '.',
-                                     sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
+                                     sample, str(num_vars), str(num_pairs), str(proportion_str)]) + '\n')
             else:
                 binned_variants_file.write('\t'.join([var.chr, str(var.pos), '.',
                                      var.ref(), var.alt(), '.', '.',
-                                     sample, str(num_vars), str(num_pairs), str(percent_str)]) + '\n')
+                                     sample, str(num_vars), str(num_pairs), str(proportion_str)]) + '\n')
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     if args.coverdir is not None:
