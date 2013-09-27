@@ -10,7 +10,8 @@ from operator import itemgetter
 import csv
 from version import rover_version
 
-default_minimum_read_overlap = 0.5
+# proportion of read which must overlap region of interest
+default_minimum_read_overlap = 0.9
 default_percent_threshold = 5.0
 default_absolute_threshold = 2
 
