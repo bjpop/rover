@@ -12,7 +12,7 @@ from version import rover_version
 
 # proportion of read which must overlap region of interest
 default_minimum_read_overlap = 0.9
-default_proportion_threshold = 5.0
+default_proportion_threshold = 0.05
 default_absolute_threshold = 2
 
 def parse_args():
