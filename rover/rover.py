@@ -165,6 +165,12 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     return result
 
 
+# SAM/BAM files store the quality score of a base as a byte (ascii character)
+# in "Qual plus 33 format". So we subtract off 33 from the ascii code
+# to get the actual score
+# See: http://samtools.sourceforge.net/SAMv1.pdf
+# ASCII codes 32 an above are the so-called printable characters, but 32
+# is a whitespace character, so SAM uses 33 and above.
 def ascii_to_phred(ascii):
     return ord(ascii) - 33
 
