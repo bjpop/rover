@@ -3,7 +3,7 @@ Rover - ROVER-PCR Variant Caller: read-pair overlap considerate variant-calling
 software for PCR-based massively parallel sequencing datasets
 --------------------------------------------------------------------------------
 
-Version: 1.0.1
+Version: 1.1.0
 
 Authors: Bernard J Pope (2,3), Tú Nguyen-Dumont (1), Fleur Hammet (1) and
          Daniel J Park (1)
@@ -55,7 +55,7 @@ Command line usage:
 
 usage: rover [-h] [--version] --primers PRIMERS [--overlap OVERLAP]
              [--log FILE] --out FILE [--proportionthresh N] [--absthresh N]
-             [--coverdir COVERDIR]
+             [--qualthresh N] [--coverdir COVERDIR]
              bams [bams ...]
 
 Consider mapped reads to amplicon sites
@@ -76,6 +76,7 @@ optional arguments:
                         otherwise. Defaults to 0.05.
   --absthresh N         Only keep variants which appear in at least this many
                         read pairs. Defaults to 2.
+  --qualthresh N        Minimum base quality score (phred).
   --coverdir COVERDIR   Directory to write coverage files, defaults to current
                         working directory.
 
@@ -155,6 +156,17 @@ Explanation of the arguments:
       for a given target region.
 
       See comments above about proportionthresh.
+
+   --qualthresh N
+
+      Optional. Minimum phred quality score for bases appearing in SNVs and
+      insertions. If this argument is set Rover will only consider SNVs and
+      insertions where all DNA bases in those variants have a quality score
+      greater than or equal to the argument. For example, setting this
+      argument to 35 will cause Rover to discard any SNVs or insertions
+      containing any bases with a score below 35. If the argument is not
+      set then Rover will not consider quality scores in its decision
+      to keep or discard a variant.
  
    --coverdir COVERDIR
 
