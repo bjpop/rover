@@ -121,7 +121,7 @@ Explanation of the arguments:
       Required.
 
       Name of the output file created by Rover. This file contains the
-      variants called by the program.
+      variants called by the program. This file is in tab separated format.
 
    --proportionthresh N
 
