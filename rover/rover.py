@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument( '--log', metavar='FILE', type=str,
         help='Log progress in FILENAME, defaults to stdout.')
     parser.add_argument('--out', metavar='FILE', type=str,
-        required=True, help='Name of output VCF file.')
+        required=True, help='Name of output file containing called variants.')
     parser.add_argument('--proportionthresh', metavar='N', type=float,
         default=default_proportion_threshold,
         help='Keep variants which appear in this proportion of the read pairs for '

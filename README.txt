@@ -53,10 +53,31 @@ screening.
 Command line usage:
 --------------------------------------------------------------------------------
 
-rover [-h] [--version] --primers PRIMERS [--overlap OVERLAP]
-      [--log FILE] --vcf FILE [--proportionthresh N] [--absthresh N]
-      [--coverdir COVERDIR]
-      bams [bams ...]
+usage: rover [-h] [--version] --primers PRIMERS [--overlap OVERLAP]
+             [--log FILE] --out FILE [--proportionthresh N] [--absthresh N]
+             [--coverdir COVERDIR]
+             bams [bams ...]
+
+Consider mapped reads to amplicon sites
+
+positional arguments:
+  bams                  bam files containing mapped reads
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  --primers PRIMERS     File name of primer coordinates in TSV format.
+  --overlap OVERLAP     Minimum fraction overlap of read to block region.
+                        Defaults to 0.9.
+  --log FILE            Log progress in FILENAME, defaults to stdout.
+  --out FILE            Name of output file containing called variants.
+  --proportionthresh N  Keep variants which appear in this proportion of the
+                        read pairs for a given target region, and bin
+                        otherwise. Defaults to 0.05.
+  --absthresh N         Only keep variants which appear in at least this many
+                        read pairs. Defaults to 2.
+  --coverdir COVERDIR   Directory to write coverage files, defaults to current
+                        working directory.
 
 Explanation of the arguments:
 
@@ -80,7 +101,7 @@ Explanation of the arguments:
 
    --overlap OVERLAP
 
-      Optional. Defaults to 0.5.
+      Optional. Defaults to 0.9.
 
       Minimum fraction overlap of read to block region.
 
@@ -94,16 +115,16 @@ Explanation of the arguments:
 
       Write a log of the program's progress to this file. 
 
-   --vcf FILE
+   --out FILE
 
       Required.
 
-      Name of the output VCF file created by Rover. This file contains the
+      Name of the output file created by Rover. This file contains the
       variants called by the program.
 
    --proportionthresh N
 
-      Optional. Defaults to 5.0.
+      Optional. Defaults to 0.05.
 
       Only keep variants which appear in this proportion of the read pairs for
       a given target region, and bin otherwise. A variant must appear in
@@ -121,7 +142,7 @@ Explanation of the arguments:
 
       That is to say:
 
-          if (N/T) * 100 >= proportionthresh and N >= absthresh:
+          if N/T  >= proportionthresh and N >= absthresh:
               keep the variant
           else:
               bin the variant
@@ -155,13 +176,13 @@ Explanation of the arguments:
 Example usage (should be all on one line)
 --------------------------------------------------------------------------------
 
-   rover --primers primer_coords.tsv --log rover_log --vcf variants.vcf 
+   rover --primers primer_coords.tsv --log rover_log --out variants
          --proportionthresh 0.15 --absthresh 2 --coverdir coverage_files
          sample1.bam sample2.bam sample3.bam
 
 This assumes that the coordinates for your primer regions are in the file
 primer_coords.tsv. The detected variants will appear in the output file
-variants.vcf. The names of the samples will be taken from the prefix of
+variants. The names of the samples will be taken from the prefix of
 the bam file name, in this case "sample1" "sample2" and "sample3".
 Coverage files containing the number of read pairs which mapped to
 each region will be output in coverage_files/sample1.coverage
