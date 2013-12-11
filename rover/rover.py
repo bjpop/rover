@@ -9,6 +9,7 @@ import os
 from operator import itemgetter
 import csv
 from version import rover_version
+from itertools import (izip, chain, repeat)
 
 # proportion of read which must overlap region of interest
 default_minimum_read_overlap = 0.9
@@ -43,6 +44,8 @@ def parse_args():
         default=default_absolute_threshold,
         help='Only keep variants which appear in at least this many read pairs. '
              'Defaults to {}.'.format(default_absolute_threshold))
+    parser.add_argument('--qualthresh', metavar='N', type=int,
+        help='Minimum base quality score (phred).')
     parser.add_argument('--coverdir',
         required=False,
         help='Directory to write coverage files, defaults to current working directory.')
@@ -90,7 +93,7 @@ def get_MD(read):
 #X   BAM_CDIFF   8
 
 # find all the variants in a single read (SNVs, Insertions, Deletions)
-def read_variants(name, chr, pos, aligned_bases, cigar, md):
+def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     cigar_orig = cigar
     md_orig = md
     seq_index = 0
@@ -119,8 +122,11 @@ def read_variants(name, chr, pos, aligned_bases, cigar, md):
                     seq_index += next_md.size
             elif isinstance(next_md, MD_mismatch):
                  # MD mismatch
-                 seq_base = aligned_bases[seq_index] 
-                 result.append(SNV(chr, pos, next_md.ref_base, seq_base))
+                 seq_base_qual = aligned_bases[seq_index]
+                 # check if the read base is above the minimum quality score
+                 if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
+                     seq_base = seq_base_qual.base
+                     result.append(SNV(chr, pos, next_md.ref_base, seq_base))
                  cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
                  md = md[1:]
                  pos += 1
@@ -134,8 +140,11 @@ def read_variants(name, chr, pos, aligned_bases, cigar, md):
                 exit()
         elif cigar_code == 1: 
             # Insertion
-            seq_bases = aligned_bases[seq_index:seq_index + cigar_segment_extent]
-            result.append(Insertion(chr, pos, seq_bases))
+            seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
+            seq_bases = ''.join([b.base for b in seq_bases_quals])
+            # check that all the bases are above the minimum quality threshold
+            if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
+                result.append(Insertion(chr, pos, seq_bases))
             cigar = cigar[1:]
             seq_index += cigar_segment_extent
             # pos does not change
@@ -155,12 +164,49 @@ def read_variants(name, chr, pos, aligned_bases, cigar, md):
             exit()
     return result
 
+
+def ascii_to_phred(ascii):
+    return ord(ascii) - 33
+
+def make_base_seq(name, bases, qualities):
+    '''Take a list of DNA bases and a corresponding list of quality scores
+    and return a list of Base objects where the base and score are
+    paired together.'''
+    num_bases = len(bases)
+    num_qualities = len(qualities)
+    if num_bases <= num_qualities:
+        return [Base(b, ascii_to_phred(q)) for (b, q) in izip(bases, qualities)]
+    else:
+        logging.warning("In read {} fewer quality scores {} than bases {}"
+            .format(name, num_qualities, num_bases))
+        # we have fewer quality scores than bases
+        # pad the end with 0 scores (which is ord('!') - 33)
+        return [Base(b, ascii_to_phred(q))
+            for (b, q) in izip(bases, chain(qualities, repeat('!')))]
+
+# a DNA base paired with its quality score
+class Base(object):
+    def __init__(self, base, qual):
+        self.base = base # a string
+        self.qual = qual # an int
+    def as_tuple(self):
+        return (self.base, self.qual)
+    def __eq__(self, other):
+        return self.as_tuple() == other.as_tuple()
+    def __str__(self):
+        return str(self.as_tuple())
+    def __repr__(self):
+        return str(self)
+    def __hash__(self):
+        return hash(self.as_tuple)
+
 class SNV(object):
+    # bases are represented just as DNA strings
     def __init__(self, chr, pos, ref_base, seq_base):
         self.chr = chr
         self.pos = pos
         self.ref_base = ref_base
-        self.seq_base = seq_base
+        self.seq_base = seq_base 
     def __str__(self):
         return "S: {} {} {} {}".format(self.chr, self.pos, self.ref_base, self.seq_base)
     def __repr__(self):
@@ -178,6 +224,7 @@ class SNV(object):
 
 
 class Insertion(object):
+    # bases are represented just as DNA strings
     def __init__(self, chr, pos, inserted_bases):
         self.chr = chr
         self.pos = pos
@@ -198,6 +245,7 @@ class Insertion(object):
         return self.inserted_bases
 
 class Deletion(object):
+    # bases are represented just as DNA strings
     def __init__(self, chr, pos, deleted_bases):
         self.chr = chr
         self.pos = pos
@@ -307,8 +355,15 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
             elif len(reads) == 2:
                 num_pairs += 1
                 read1, read2 = reads
-                variants1 = read_variants(read1.qname, chr, read1.pos + 1, read1.query, read1.cigar, parse_md(get_MD(read1), []))
-                variants2 = read_variants(read2.qname, chr, read2.pos + 1, read2.query, read2.cigar, parse_md(get_MD(read2), []))
+                #print(read1.query)
+                #print([ord(x) - 33 for x in read1.qqual])
+                #print(read2.query)
+                #print([ord(x) - 33 for x in read2.qqual])
+                #exit()
+                read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
+                read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
+                variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
+                variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
                 # find the variants each read in the pair share in common
