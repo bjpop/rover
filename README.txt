@@ -19,6 +19,18 @@ Web:     https://github.com/bjpop/rover
 
 License: BSD
 
+Citation:
+
+   Please cite Rover as follows:
+
+   ROVER variant caller: read-pair overlap considerate variant-calling software
+   applied to PCR-based massively parallel sequencing datasets.
+   Bernard J Pope, Tú Nguyen-Dumont, Fleur Hammet and Daniel J Park.
+
+   Source Code for Biology and Medicine 2014, 9:3
+   DOI: 10.1186/1751-0473-9-3
+   http://www.scfbm.org/content/9/1/3
+
 Requirements: Python 2.7, and the PySam library
 (http://code.google.com/p/pysam/).
 
