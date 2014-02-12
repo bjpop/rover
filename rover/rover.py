@@ -330,6 +330,11 @@ def parse_md_del(md, result):
 
 def proportion_overlap(block_start, block_end, read):
     read_end = read.pos + read.rlen - 1
+    if read.rlen <= 0:
+        # read is degenerate, zero length
+        # treat it as no overlap
+        logging.warn("Degenerate read: {}, length: {}".format(read.qname, read.rlen))
+        return 0.0
     if read_end < block_start or read.pos > block_end:
         # they don't overlap
         return 0.0
