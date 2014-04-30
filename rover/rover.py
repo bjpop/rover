@@ -351,7 +351,8 @@ def write_variant(file, variant, sample):
 
 def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, block_coords):
     coverage_info = []
-    for chr, start, end in block_coords:
+    for block_info in block_coords:
+        chr, start, end = block_info[:3]
         start = int(start)
         end = int(end)
         logging.info("processing block chr: {}, start: {}, end: {}".format(chr, start, end))
