@@ -118,9 +118,9 @@ Explanation of the arguments:
 
       Minimum fraction overlap of read to block region.
 
-      0.5 means at least half of a read should overlap a given target region
+      0.5 means at least half of a block must be overlapped by a read
       for the read to be considered for that region. 1.0 would mean the entire
-      read must overlap the region.
+      block must be overlapped by the read.
 
    --log FILE
 

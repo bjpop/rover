@@ -11,8 +11,8 @@ import csv
 from version import rover_version
 from itertools import (izip, chain, repeat)
 
-# proportion of read which must overlap region of interest
-default_minimum_read_overlap = 0.9
+# proportion of block which must be overlapped by read 
+default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
 
@@ -26,9 +26,9 @@ def parse_args():
         '--primers', type=str, required=True,
         help='File name of primer coordinates in TSV format.')
     parser.add_argument(
-        '--overlap', type=float, default=default_minimum_read_overlap,
-        help='Minimum fraction overlap of read to block region. '
-             'Defaults to {}.'.format(default_minimum_read_overlap))
+        '--overlap', type=float, default=default_minimum_read_overlap_block,
+        help='Minimum proportion of block which must be overlapped by a read. '
+             'Defaults to {}.'.format(default_minimum_read_overlap_block))
     parser.add_argument(
         'bams', nargs='+', type=str, help='bam files containing mapped reads')
     parser.add_argument( '--log', metavar='FILE', type=str,
@@ -329,6 +329,18 @@ def parse_md_del(md, result):
     return result
 
 def proportion_overlap(block_start, block_end, read):
+    '''Compute the proportion of the block that is overlapped by the read
+
+          block_start               block_end
+               |-------------------------|
+
+        ^---------------------------^
+    read.pos                      read_end
+
+               |--------------------|
+         overlap_start        overlap_end
+
+    '''
     read_end = read.pos + read.rlen - 1
     if read.rlen <= 0:
         # read is degenerate, zero length
@@ -342,7 +354,8 @@ def proportion_overlap(block_start, block_end, read):
         overlap_start = max(block_start, read.pos)
         overlap_end = min(block_end, read_end)
         overlap_size = overlap_end - overlap_start + 1
-        return float(overlap_size) / read.rlen
+        block_size = block_end - block_start + 1
+        return float(overlap_size) / block_size
 
 def write_variant(file, variant, sample):
     file.write(
