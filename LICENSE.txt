@@ -1,7 +1,7 @@
 Rover License
 --------------------------------------------------------------------
-Copyright (c) 2013
-Bernard J Pope, Tú Nguyen-Dumont, Fleur Hammet and Daniel J Park
+Copyright (c) 2013, 2014
+Bernard J Pope, Tú Nguyen-Dumont, Fleur Hammet, Daniel J Park and Roger Li
 
 All rights reserved.
 
