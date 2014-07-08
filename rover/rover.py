@@ -127,7 +127,10 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                  # check if the read base is above the minimum quality score
                  if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
                      seq_base = seq_base_qual.base
-                     result.append(SNV(chr, pos, next_md.ref_base, seq_base))
+                     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, "PASS"))
+		 else:
+		     seq_base = seq_base_qual.base
+		     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, "q10"))
                  cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
                  md = md[1:]
                  pos += 1
@@ -145,15 +148,21 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                result.append(Insertion(chr, pos, seq_bases))
+                result.append(Insertion(chr, pos, seq_bases, 15, "PASS"))
+	    else:
+	        result.append(Insertion(chr, pos, seq_bases, 15, "q10"))
             cigar = cigar[1:]
             seq_index += cigar_segment_extent
             # pos does not change
         elif cigar_code == 2:
             # Deletion
             if isinstance(next_md, MD_deletion):
-                result.append(Deletion(chr, pos, next_md.ref_bases))
-                md = md[1:]
+                seq_base = aligned_bases[seq_index]
+		if seq_base.qual >= args.qualthresh:
+		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, "PASS"))
+                else:
+		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, "q10"))
+		md = md[1:]
                 cigar = cigar[1:]
                 pos += cigar_segment_extent
                 # seq_index does not change
@@ -209,11 +218,14 @@ class Base(object):
 
 class SNV(object):
     # bases are represented just as DNA strings
-    def __init__(self, chr, pos, ref_base, seq_base):
+    def __init__(self, chr, pos, ref_base, seq_base, qual, filter):
         self.chr = chr
         self.pos = pos
         self.ref_base = ref_base
-        self.seq_base = seq_base 
+        self.seq_base = seq_base
+	self.qual = qual
+	self.filter = filter
+	self.info = []
     def __str__(self):
         return "S: {} {} {} {}".format(self.chr, self.pos, self.ref_base, self.seq_base)
     def __repr__(self):
@@ -229,13 +241,15 @@ class SNV(object):
     def alt(self):
         return self.seq_base
 
-
 class Insertion(object):
     # bases are represented just as DNA strings
-    def __init__(self, chr, pos, inserted_bases):
+    def __init__(self, chr, pos, inserted_bases, qual, filter):
         self.chr = chr
         self.pos = pos
         self.inserted_bases = inserted_bases
+	self.qual = qual
+	self.filter = filter
+	self.info = []
     def __str__(self):
         return "I: {} {} {}".format(self.chr, self.pos, self.inserted_bases)
     def __repr__(self):
@@ -253,10 +267,13 @@ class Insertion(object):
 
 class Deletion(object):
     # bases are represented just as DNA strings
-    def __init__(self, chr, pos, deleted_bases):
+    def __init__(self, chr, pos, deleted_bases, qual, filter):
         self.chr = chr
         self.pos = pos
         self.deleted_bases = deleted_bases
+	self.qual = qual
+	self.filter = filter
+	self.info = []
     def __str__(self):
         return "D: {} {} {}".format(self.chr, self.pos, self.deleted_bases)
     def __repr__(self):
@@ -358,10 +375,10 @@ def proportion_overlap(block_start, block_end, read):
         block_size = block_end - block_start + 1
         return float(overlap_size) / block_size
 
-def write_variant(file, variant, sample):
+def write_variant(file, variant, sample, num_vars):
     file.write(
-        '\t'.join([variant.chr[3:], str(variant.pos), str(variant.pos), variant.ref(),
-                   variant.alt(), "comments: " + sample]) + '\n')
+        '\t'.join([variant.chr[3:], str(variant.pos), '.', variant.ref(),
+                   variant.alt(), str(variant.qual), str(variant.filter), ';'.join(variant.info)]) + '\n')
 
 def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, block_coords):
     coverage_info = []
@@ -409,10 +426,11 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
             num_vars = block_vars[var]
             proportion = float(num_vars) / num_pairs
             proportion_str = "{:.2f}".format(proportion)
+	    var.info.append("DP=" + str(num_vars))
             if num_vars >= args.absthresh and proportion >= args.proportionthresh:
-                write_variant(kept_variants_file, var, sample)
+                write_variant(kept_variants_file, var, sample, num_vars)
             else:
-                write_variant(binned_variants_file, var, sample)
+                write_variant(binned_variants_file, var, sample, num_vars)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     if args.coverdir is not None:
@@ -422,26 +440,27 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
         for chr, start, end, num_pairs in sorted(coverage_info, key=itemgetter(3)):
             coverage_file.write('{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs))
 
-def write_metadata(file):
+def write_metadata(args, file):
     file.write("##fileformat=VCFv4.2" + '\n')
     today = datetime.date.today()
     file.write("##fileDate=" + str(today)[:4] + str(today)[8:] + str(today)[5:7] + '\n')
-    file.write("##source=" + '\n')
+    file.write("##source=ROVER-PCR Variant Caller" + '\n')
     file.write("##reference=" + '\n')
     file.write("##contig=" + '\n')
     file.write("##phasing=" + '\n')
     file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
     file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
-    file.write("##FILTER=<ID=q10,Description=\"Quality below 10\">" + '\n')
+    if args.qualthresh: 
+        file.write("##FILTER=<ID=q10,Description=\"Quality below " + str(args.qualthresh) + "\">" + '\n')
 
-output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
+output_header = '\t'.join(["#CHROM", "POS", '', "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
     with open(args.out, "w") as kept_variants_file, \
          open(args.out + '.binned', "w") as binned_variants_file:
-        write_metadata(kept_variants_file)
-	write_metadata(binned_variants_file)
+        write_metadata(args, kept_variants_file)
+	write_metadata(args, binned_variants_file)
 	kept_variants_file.write(output_header + '\n')
         binned_variants_file.write(output_header + '\n')
 	for bam_filename in args.bams:
