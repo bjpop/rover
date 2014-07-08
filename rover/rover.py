@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from argparse import (ArgumentParser, FileType)
+from Bio import SeqIO
 import datetime
 import logging
 import sys
@@ -21,6 +22,8 @@ def parse_args():
     "Consider mapped reads to amplicon sites"
 
     parser = ArgumentParser(description="Consider mapped reads to amplicon sites")
+    parser.add_argument('--reference', type=str, 
+	help='File name of reference DNA sequence in FASTA format.')
     parser.add_argument(
     '--version', action='version', version='%(prog)s ' + rover_version)
     parser.add_argument(
