@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from argparse import (ArgumentParser, FileType)
+import datetime
 import logging
 import sys
 import pysam
@@ -359,7 +360,7 @@ def proportion_overlap(block_start, block_end, read):
 
 def write_variant(file, variant, sample):
     file.write(
-        '\t'.join([variant.chr, str(variant.pos), str(variant.pos), variant.ref(),
+        '\t'.join([variant.chr[3:], str(variant.pos), str(variant.pos), variant.ref(),
                    variant.alt(), "comments: " + sample]) + '\n')
 
 def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, block_coords):
@@ -421,17 +422,29 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
         for chr, start, end, num_pairs in sorted(coverage_info, key=itemgetter(3)):
             coverage_file.write('{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs))
 
+def write_metadata(file):
+    file.write("##fileformat=VCFv4.2" + '\n')
+    today = datetime.date.today()
+    file.write("##fileDate=" + str(today)[:4] + str(today)[8:] + str(today)[5:7] + '\n')
+    file.write("##source=" + '\n')
+    file.write("##reference=" + '\n')
+    file.write("##contig=" + '\n')
+    file.write("##phasing=" + '\n')
+    file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
+    file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
+    file.write("##FILTER=<ID=q10,Description=\"Quality below 10\">" + '\n')
 
-
-# output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "NUM_PAIRS_WITH_VAR", "NUM_PAIRS_AT_POS", "PERCENT"])
+output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
     with open(args.out, "w") as kept_variants_file, \
          open(args.out + '.binned', "w") as binned_variants_file:
-        #kept_variants_file.write(output_header + '\n')
-        #binned_variants_file.write(output_header + '\n')
-        for bam_filename in args.bams:
+        write_metadata(kept_variants_file)
+	write_metadata(binned_variants_file)
+	kept_variants_file.write(output_header + '\n')
+        binned_variants_file.write(output_header + '\n')
+	for bam_filename in args.bams:
             base = os.path.basename(bam_filename)
             sample = base.split('.')
             if len(sample) > 0:
