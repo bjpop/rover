@@ -151,9 +151,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                result.append(Insertion(chr, pos, seq_bases, 15, "PASS"))
+                result.append(Insertion(chr, pos, seq_bases, 15, "PASS", '-'))
 	    else:
-	        result.append(Insertion(chr, pos, seq_bases, 15, "q10"))
+	        result.append(Insertion(chr, pos, seq_bases, 15, "q10", '-'))
             cigar = cigar[1:]
             seq_index += cigar_segment_extent
             # pos does not change
@@ -162,9 +162,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             if isinstance(next_md, MD_deletion):
                 seq_base = aligned_bases[seq_index]
 		if seq_base.qual >= args.qualthresh:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, "PASS"))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, "PASS", '-'))
                 else:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, "q10"))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, "q10", '-'))
 		md = md[1:]
                 cigar = cigar[1:]
                 pos += cigar_segment_extent
@@ -246,13 +246,14 @@ class SNV(object):
 
 class Insertion(object):
     # bases are represented just as DNA strings
-    def __init__(self, chr, pos, inserted_bases, qual, filter):
+    def __init__(self, chr, pos, inserted_bases, qual, filter, context):
         self.chr = chr
         self.pos = pos
         self.inserted_bases = inserted_bases
 	self.qual = qual
 	self.filter = filter
 	self.info = []
+	self.context = context
     def __str__(self):
         return "I: {} {} {}".format(self.chr, self.pos, self.inserted_bases)
     def __repr__(self):
@@ -264,19 +265,20 @@ class Insertion(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return '-'
+        return self.context
     def alt(self):
-        return self.inserted_bases
+        return self.context + self.inserted_bases
 
 class Deletion(object):
     # bases are represented just as DNA strings
-    def __init__(self, chr, pos, deleted_bases, qual, filter):
+    def __init__(self, chr, pos, deleted_bases, qual, filter, context):
         self.chr = chr
         self.pos = pos
         self.deleted_bases = deleted_bases
 	self.qual = qual
 	self.filter = filter
 	self.info = []
+	self.context = context
     def __str__(self):
         return "D: {} {} {}".format(self.chr, self.pos, self.deleted_bases)
     def __repr__(self):
@@ -288,9 +290,9 @@ class Deletion(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return self.deleted_bases
+        return self.context + self.deleted_bases
     def alt(self):
-        return '-'
+        return self.context
 
 class MD_match(object):
     def __init__(self, size):
