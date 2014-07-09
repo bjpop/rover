@@ -143,7 +143,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
                 result.append(Deletion(chr, pos, deleted_bases, 15, "PASS", context))
 	    else:
 		result.append(Deletion(chr, pos, deleted_bases, 15, "q10", context))
-	return result
+    return result
 
 """
 	    if isinstance(next_md, MD_match):
