@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from argparse import (ArgumentParser, FileType)
-from Bio import SeqIO
+from pyfaidx import Fasta
 import datetime
 import logging
 import sys
@@ -97,19 +97,56 @@ def get_MD(read):
 #X   BAM_CDIFF   8
 
 # find all the variants in a single read (SNVs, Insertions, Deletions)
-def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
+def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
     cigar_orig = cigar
     md_orig = md
     seq_index = 0
     result = []
 
-    while cigar and md:
+    while cigar:
         cigar_code, cigar_segment_extent = cigar[0]
-        next_md = md[0]
 
         if cigar_code == 0:
             # Cigar Match
-            if isinstance(next_md, MD_match):
+           
+	    if fasta[pos] == aligned_bases[seq_index]:
+		pos += cigar_segment_extent
+		seq_index += cigar_segment_extent
+	    else:
+		cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
+		pos += 1
+		seq_index += 1
+		seq_base_qual = aligned_bases[seq_index]
+		seq_base = seq_base_qual.base
+		if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
+	            result.append(SNV(chr, pos, fasta[pos], seq_base, seq_base_qual.qual, "PASS"))
+		else:
+		    result.append(SNV(chr, post, fasta[pos], seq_base, seq_base_qual.qual, "q10"))
+
+	elif cigar_code == 1:
+	    extra_bases_quals = aligned_bases[(seq_index - 1):(seq_index + cigar_segment_extent)]
+	    extra_bases = ''.join([b.base for b in extra_bases_quals])
+	    context = fasta[pos - 1]
+	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
+	        result.append(Insertion(chr, pos, seq_bases, 15, "PASS", context))
+	    else:
+		result.append(Insertion(chr, pos, seq_bases, 15, "q10", context))
+	    cigar = cigar[1:]
+	    seq_index += cigar_segment_extent
+
+	elif cigar_code == 2:
+	    deleted_bases_quals = fasta[pos:(pos + cigar_segment_extent)]
+	    deleted_bases = ''.join([b.base for b in extra_bases_quals])
+	    context = fasta[pos - 1]
+	    seq_base = aligned_bases[seq_index]
+	    if seq_base.qual >= args.qualthresh:
+                result.append(Deletion(chr, pos, deleted_bases, 15, "PASS", context))
+	    else:
+		result.append(Deletion(chr, pos, deleted_bases, 15, "q10", context))
+	return result
+
+"""
+	    if isinstance(next_md, MD_match):
                 # MD match 
                 if next_md.size >= cigar_segment_extent:
                     next_md.size -= cigar_segment_extent
@@ -175,7 +212,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
         else:
             logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
-    return result
+"""
 
 
 # SAM/BAM files store the quality score of a base as a byte (ascii character)
@@ -294,6 +331,7 @@ class Deletion(object):
     def alt(self):
         return self.context
 
+"""
 class MD_match(object):
     def __init__(self, size):
         self.size = size
@@ -350,6 +388,7 @@ def parse_md_del(md, result):
             md = del_groups[1]
             return parse_md(md, result + [MD_deletion(ref_bases)])
     return result
+"""
 
 def proportion_overlap(block_start, block_end, read):
     '''Compute the proportion of the block that is overlapped by the read
@@ -385,7 +424,7 @@ def write_variant(file, variant, sample, num_vars):
         '\t'.join([variant.chr[3:], str(variant.pos), '.', variant.ref(),
                    variant.alt(), str(variant.qual), str(variant.filter), ';'.join(variant.info)]) + '\n')
 
-def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, block_coords):
+def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, block_coords, ref_dict):
     coverage_info = []
     for block_info in block_coords:
         chr, start, end = block_info[:3]
@@ -410,8 +449,11 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
                 #exit()
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
-                variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
-                variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
+		
+                variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []), \
+			 ref_dict[chr][read1.pos-1000:read1.pos+1000].seq)
+                variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []), \
+			 ref_dict[chr][read2.pos-1000:read2.pos+1000].seq)
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
                 # find the variants each read in the pair share in common
@@ -450,7 +492,7 @@ def write_metadata(args, file):
     today = datetime.date.today()
     file.write("##fileDate=" + str(today)[:4] + str(today)[8:] + str(today)[5:7] + '\n')
     file.write("##source=ROVER-PCR Variant Caller" + '\n')
-    file.write("##reference=" + '\n')
+    file.write("##reference=file:///" + str(args.reference) + '\n')
     file.write("##contig=" + '\n')
     file.write("##phasing=" + '\n')
     file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
@@ -468,6 +510,8 @@ def process_bams(args):
 	write_metadata(args, binned_variants_file)
 	kept_variants_file.write(output_header + '\n')
         binned_variants_file.write(output_header + '\n')
+	ref_dict = Fasta(args.reference)
+	print ref_dict.keys()
 	for bam_filename in args.bams:
             base = os.path.basename(bam_filename)
             sample = base.split('.')
@@ -478,7 +522,7 @@ def process_bams(args):
             with pysam.Samfile(bam_filename, "rb") as bam:
                 logging.info("processing bam file {}".format(bam_filename))
                 process_blocks(args, kept_variants_file,
-                               binned_variants_file, bam, sample, block_coords)
+                               binned_variants_file, bam, sample, block_coords, ref_dict)
 
 def main():
     args = parse_args()
