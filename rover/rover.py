@@ -99,6 +99,7 @@ def get_MD(read):
 # find all the variants in a single read (SNVs, Insertions, Deletions)
 def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
     cigar_orig = cigar
+    ref = 0
     seq_index = 0
     result = []
 
@@ -106,26 +107,28 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
         cigar_code, cigar_segment_extent = cigar[0]
 	if cigar_code == 0:
 	    # Cigar Match
-            if fasta[seq_index + 1] == aligned_bases[seq_index].base:
-		pos += cigar_segment_extent
+	    if fasta[ref + 1].upper() == aligned_bases[seq_index].base:
+	    	pos += cigar_segment_extent
+		ref += cigar_segment_extent
 		seq_index += cigar_segment_extent
 		cigar = cigar[1:]
 	    else:
-		cigar = [(cigar_code, cigar_segment_extent - 1)]
 		seq_base_qual = aligned_bases[seq_index]
 		seq_base = seq_base_qual.base
 		if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
-	            result.append(SNV(chr, pos, fasta[seq_index], seq_base, seq_base_qual.qual, None))
+	            result.append(SNV(chr, pos, fasta[ref + 1], seq_base, seq_base_qual.qual, None))
 		else:
-		    result.append(SNV(chr, pos, fasta[seq_index], seq_base, seq_base_qual.qual, ";qlt"))
+		    result.append(SNV(chr, pos, fasta[ref + 1], seq_base, seq_base_qual.qual, ";qlt"))
+		cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
 		seq_index += 1
+		ref += 1
 		pos += 1
 
 	elif cigar_code == 1:
 	    extra_bases_quals = aligned_bases[(seq_index):(seq_index + cigar_segment_extent)]
 	    extra_bases = ''.join([b.base for b in extra_bases_quals])
-	    context = fasta[seq_index - 1]
-	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
+	    context = fasta[ref - 1]
+	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in extra_bases_quals]):
 	        result.append(Insertion(chr, pos, extra_bases, 15, None, context))
 	    else:
 		result.append(Insertion(chr, pos, extra_bases, 15, ";qlt", context))
@@ -133,15 +136,19 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
 	    seq_index += cigar_segment_extent
 
 	elif cigar_code == 2:
-	    deleted_bases = fasta[seq_index:(seq_index + cigar_segment_extent)]
-	    context = fasta[seq_index - 1]
+	    deleted_bases = fasta[ref:(ref + cigar_segment_extent)]
+	    context = fasta[ref - 1]
 	    seq_base = aligned_bases[seq_index]
 	    if seq_base.qual >= args.qualthresh:
                 result.append(Deletion(chr, pos, deleted_bases, 15, None, context))
 	    else:
 		result.append(Deletion(chr, pos, deleted_bases, 15, ";qlt", context))
 	    pos += cigar_segment_extent
+	    ref += cigar_segment_extent
 	    cigar = cigar[1:]
+	else:
+	    logging.info("unexpected cigar code {}".format(cigar_orig))
+	    exit()
     return result
 """
 
@@ -280,9 +287,9 @@ class SNV(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return self.ref_base.upper()
+        return self.ref_base
     def alt(self):
-        return self.seq_base.upper()
+        return self.seq_base
     def fil(self):
 	if self.filter is None:
 	    return "PASS"
@@ -310,9 +317,9 @@ class Insertion(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return self.context.upper()
+        return self.context
     def alt(self):
-        return self.context.upper() + self.inserted_bases
+        return self.context + self.inserted_bases
     def fil(self):
         if self.filter is None:
 	    return "PASS"
@@ -340,9 +347,9 @@ class Deletion(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return self.context.upper() + self.deleted_bases
+        return self.context + self.deleted_bases
     def alt(self):
-        return self.context.upper()
+        return self.context
     def fil(self):
 	if self.filter is None:
 	    return "PASS"
@@ -472,9 +479,9 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, ref_dict
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
 		
                 variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []), \
-			 ref_dict[chr][read1.pos - 1:read1.pos+10000].seq)
+			 ref_dict[chr][read1.pos - 1:read1.pos+1000].seq)
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []), \
-			 ref_dict[chr][read2.pos - 1:read2.pos+10000].seq)
+			 ref_dict[chr][read2.pos - 1:read2.pos+1000].seq)
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
                 # find the variants each read in the pair share in common
