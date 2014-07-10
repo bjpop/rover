@@ -99,53 +99,56 @@ def get_MD(read):
 # find all the variants in a single read (SNVs, Insertions, Deletions)
 def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
     cigar_orig = cigar
-    md_orig = md
     seq_index = 0
     result = []
 
-    while cigar:
+    while cigar and seq_index < len(aligned_bases):
         cigar_code, cigar_segment_extent = cigar[0]
-
-        if cigar_code == 0:
-            # Cigar Match
-           
-	    if fasta[pos] == aligned_bases[seq_index]:
+	if cigar_code == 0:
+	    # Cigar Match
+            if fasta[seq_index + 1] == aligned_bases[seq_index].base:
 		pos += cigar_segment_extent
 		seq_index += cigar_segment_extent
+		cigar = cigar[1:]
 	    else:
-		cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
-		pos += 1
-		seq_index += 1
+		cigar = [(cigar_code, cigar_segment_extent - 1)]
 		seq_base_qual = aligned_bases[seq_index]
 		seq_base = seq_base_qual.base
 		if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
-	            result.append(SNV(chr, pos, fasta[pos], seq_base, seq_base_qual.qual, "PASS"))
+	            result.append(SNV(chr, pos, fasta[seq_index], seq_base, seq_base_qual.qual, "PASS"))
 		else:
-		    result.append(SNV(chr, post, fasta[pos], seq_base, seq_base_qual.qual, "q10"))
+		    result.append(SNV(chr, pos, fasta[seq_index], seq_base, seq_base_qual.qual, "q10"))
+		seq_index += 1
+		pos += 1
 
 	elif cigar_code == 1:
-	    extra_bases_quals = aligned_bases[(seq_index - 1):(seq_index + cigar_segment_extent)]
+	    extra_bases_quals = aligned_bases[(seq_index):(seq_index + cigar_segment_extent)]
 	    extra_bases = ''.join([b.base for b in extra_bases_quals])
-	    context = fasta[pos - 1]
+	    context = fasta[seq_index - 1]
 	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-	        result.append(Insertion(chr, pos, seq_bases, 15, "PASS", context))
+	        result.append(Insertion(chr, pos, extra_bases, 15, "PASS", context))
 	    else:
-		result.append(Insertion(chr, pos, seq_bases, 15, "q10", context))
+		result.append(Insertion(chr, pos, extra_bases, 15, "q10", context))
 	    cigar = cigar[1:]
 	    seq_index += cigar_segment_extent
 
 	elif cigar_code == 2:
-	    deleted_bases_quals = fasta[pos:(pos + cigar_segment_extent)]
-	    deleted_bases = ''.join([b.base for b in extra_bases_quals])
-	    context = fasta[pos - 1]
+	    deleted_bases = fasta[seq_index:(seq_index + cigar_segment_extent)]
+	    context = fasta[seq_index - 1]
 	    seq_base = aligned_bases[seq_index]
 	    if seq_base.qual >= args.qualthresh:
                 result.append(Deletion(chr, pos, deleted_bases, 15, "PASS", context))
 	    else:
 		result.append(Deletion(chr, pos, deleted_bases, 15, "q10", context))
+	    pos += cigar_segment_extent
+	    cigar = cigar[1:]
     return result
-
 """
+
+    while cigar and md:
+	cigar_code, cigar_segment_extent = cigar[0]
+	next_md = md[0]
+	if cigar_code == 0:
 	    if isinstance(next_md, MD_match):
                 # MD match 
                 if next_md.size >= cigar_segment_extent:
@@ -212,8 +215,8 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
         else:
             logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
+    return result
 """
-
 
 # SAM/BAM files store the quality score of a base as a byte (ascii character)
 # in "Qual plus 33 format". So we subtract off 33 from the ascii code
@@ -277,9 +280,9 @@ class SNV(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return self.ref_base
+        return self.ref_base.upper()
     def alt(self):
-        return self.seq_base
+        return self.seq_base.upper()
 
 class Insertion(object):
     # bases are represented just as DNA strings
@@ -302,9 +305,9 @@ class Insertion(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return self.context
+        return self.context.upper()
     def alt(self):
-        return self.context + self.inserted_bases
+        return self.context.upper() + self.inserted_bases
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -327,11 +330,10 @@ class Deletion(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return self.context + self.deleted_bases
+        return self.context.upper() + self.deleted_bases
     def alt(self):
-        return self.context
+        return self.context.upper()
 
-"""
 class MD_match(object):
     def __init__(self, size):
         self.size = size
@@ -388,7 +390,6 @@ def parse_md_del(md, result):
             md = del_groups[1]
             return parse_md(md, result + [MD_deletion(ref_bases)])
     return result
-"""
 
 def proportion_overlap(block_start, block_end, read):
     '''Compute the proportion of the block that is overlapped by the read
@@ -419,7 +420,7 @@ def proportion_overlap(block_start, block_end, read):
         block_size = block_end - block_start + 1
         return float(overlap_size) / block_size
 
-def write_variant(file, variant, sample, num_vars):
+def write_variant(file, variant, sample):
     file.write(
         '\t'.join([variant.chr[3:], str(variant.pos), '.', variant.ref(),
                    variant.alt(), str(variant.qual), str(variant.filter), ';'.join(variant.info)]) + '\n')
@@ -451,9 +452,9 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
 		
                 variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []), \
-			 ref_dict[chr][read1.pos-1000:read1.pos+1000].seq)
+			 ref_dict[chr][read1.pos - 1:read1.pos+10000].seq)
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []), \
-			 ref_dict[chr][read2.pos-1000:read2.pos+1000].seq)
+			 ref_dict[chr][read2.pos - 1:read2.pos+10000].seq)
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
                 # find the variants each read in the pair share in common
@@ -473,11 +474,11 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
             num_vars = block_vars[var]
             proportion = float(num_vars) / num_pairs
             proportion_str = "{:.2f}".format(proportion)
-	    var.info.append("DP=" + str(num_vars))
+	    # var.info.append("DP=" + str(num_vars))
             if num_vars >= args.absthresh and proportion >= args.proportionthresh:
-                write_variant(kept_variants_file, var, sample, num_vars)
+                write_variant(kept_variants_file, var, sample)
             else:
-                write_variant(binned_variants_file, var, sample, num_vars)
+                write_variant(binned_variants_file, var, sample)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     if args.coverdir is not None:
@@ -511,7 +512,6 @@ def process_bams(args):
 	kept_variants_file.write(output_header + '\n')
         binned_variants_file.write(output_header + '\n')
 	ref_dict = Fasta(args.reference)
-	print ref_dict.keys()
 	for bam_filename in args.bams:
             base = os.path.basename(bam_filename)
             sample = base.split('.')
