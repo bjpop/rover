@@ -115,9 +115,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
 		seq_base_qual = aligned_bases[seq_index]
 		seq_base = seq_base_qual.base
 		if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
-	            result.append(SNV(chr, pos, fasta[seq_index], seq_base, seq_base_qual.qual, "PASS"))
+	            result.append(SNV(chr, pos, fasta[seq_index], seq_base, seq_base_qual.qual, None))
 		else:
-		    result.append(SNV(chr, pos, fasta[seq_index], seq_base, seq_base_qual.qual, "q10"))
+		    result.append(SNV(chr, pos, fasta[seq_index], seq_base, seq_base_qual.qual, ";qlt"))
 		seq_index += 1
 		pos += 1
 
@@ -126,9 +126,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
 	    extra_bases = ''.join([b.base for b in extra_bases_quals])
 	    context = fasta[seq_index - 1]
 	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-	        result.append(Insertion(chr, pos, extra_bases, 15, "PASS", context))
+	        result.append(Insertion(chr, pos, extra_bases, 15, None, context))
 	    else:
-		result.append(Insertion(chr, pos, extra_bases, 15, "q10", context))
+		result.append(Insertion(chr, pos, extra_bases, 15, ";qlt", context))
 	    cigar = cigar[1:]
 	    seq_index += cigar_segment_extent
 
@@ -137,9 +137,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
 	    context = fasta[seq_index - 1]
 	    seq_base = aligned_bases[seq_index]
 	    if seq_base.qual >= args.qualthresh:
-                result.append(Deletion(chr, pos, deleted_bases, 15, "PASS", context))
+                result.append(Deletion(chr, pos, deleted_bases, 15, None, context))
 	    else:
-		result.append(Deletion(chr, pos, deleted_bases, 15, "q10", context))
+		result.append(Deletion(chr, pos, deleted_bases, 15, ";qlt", context))
 	    pos += cigar_segment_extent
 	    cigar = cigar[1:]
     return result
@@ -283,6 +283,11 @@ class SNV(object):
         return self.ref_base.upper()
     def alt(self):
         return self.seq_base.upper()
+    def fil(self):
+	if self.filter is None:
+	    return "PASS"
+	else:
+	    return self.filter[1:]
 
 class Insertion(object):
     # bases are represented just as DNA strings
@@ -308,6 +313,11 @@ class Insertion(object):
         return self.context.upper()
     def alt(self):
         return self.context.upper() + self.inserted_bases
+    def fil(self):
+        if self.filter is None:
+	    return "PASS"
+	else:
+	    return self.filter[1:]
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -333,6 +343,11 @@ class Deletion(object):
         return self.context.upper() + self.deleted_bases
     def alt(self):
         return self.context.upper()
+    def fil(self):
+	if self.filter is None:
+	    return "PASS"
+	else:
+	    return self.filter[1:]
 
 class MD_match(object):
     def __init__(self, size):
@@ -423,9 +438,14 @@ def proportion_overlap(block_start, block_end, read):
 def write_variant(file, variant, sample):
     file.write(
         '\t'.join([variant.chr[3:], str(variant.pos), '.', variant.ref(),
-                   variant.alt(), str(variant.qual), str(variant.filter), ';'.join(variant.info)]) + '\n')
+                   variant.alt(), str(variant.qual), variant.fil(), ';'.join(variant.info)]) + '\n')
 
-def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, block_coords, ref_dict):
+def nts(s):
+    if s is None:
+	return ''
+    return str(s)
+
+def process_blocks(args, kept_variants_file, bam, sample, block_coords, ref_dict):
     coverage_info = []
     for block_info in block_coords:
         chr, start, end = block_info[:3]
@@ -475,10 +495,13 @@ def process_blocks(args, kept_variants_file, binned_variants_file, bam, sample, 
             proportion = float(num_vars) / num_pairs
             proportion_str = "{:.2f}".format(proportion)
 	    # var.info.append("DP=" + str(num_vars))
-            if num_vars >= args.absthresh and proportion >= args.proportionthresh:
-                write_variant(kept_variants_file, var, sample)
-            else:
-                write_variant(binned_variants_file, var, sample)
+            # if num_vars >= args.absthresh and proportion >= args.proportionthresh:
+            #     write_variant(kept_variants_file, var, sample)
+  	    if num_vars < args.absthresh:
+		var.filter = ''.join([nts(var.filter), ";at"])
+	    if proportion < args.proportionthresh:
+		var.filter = ''.join([nts(var.filter), ";pt"])
+	    write_variant(kept_variants_file, var, sample)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     if args.coverdir is not None:
@@ -499,18 +522,24 @@ def write_metadata(args, file):
     file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
     file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
     if args.qualthresh: 
-        file.write("##FILTER=<ID=q10,Description=\"Quality below " + str(args.qualthresh) + "\">" + '\n')
+        file.write("##FILTER=<ID=qlt,Description=\"Variant has phred quality score below " + str(args.qualthresh) + "\">" + '\n')
+    if args.absthresh:
+	file.write("##FILTER=<ID=at,Description=\"Variant does not appear in at least " + str(args.absthresh) + " read pairs\">" + '\n')
+    if args.proportionthresh:
+	file.write("##FILTER=<ID=pt,Descroption=\"Variant does not appear in at least " + str(args.proportionthresh*100) \
+		+ "% of read pairs for the given region\">" + '\n')
 
 output_header = '\t'.join(["#CHROM", "POS", '', "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
-    with open(args.out, "w") as kept_variants_file, \
-         open(args.out + '.binned', "w") as binned_variants_file:
-        write_metadata(args, kept_variants_file)
-	write_metadata(args, binned_variants_file)
+    # with open(args.out, "w") as kept_variants_file, \
+    #      open(args.out + '.binned', "w") as binned_variants_file:
+    with open(args.out, "w") as kept_variants_file:
+	write_metadata(args, kept_variants_file)
+	# write_metadata(args, binned_variants_file)
 	kept_variants_file.write(output_header + '\n')
-        binned_variants_file.write(output_header + '\n')
+        # binned_variants_file.write(output_header + '\n')
 	ref_dict = Fasta(args.reference)
 	for bam_filename in args.bams:
             base = os.path.basename(bam_filename)
@@ -521,8 +550,7 @@ def process_bams(args):
                 exit('Cannot deduce sample name from bam filename {}'.format(bam_filename))
             with pysam.Samfile(bam_filename, "rb") as bam:
                 logging.info("processing bam file {}".format(bam_filename))
-                process_blocks(args, kept_variants_file,
-                               binned_variants_file, bam, sample, block_coords, ref_dict)
+                process_blocks(args, kept_variants_file, bam, sample, block_coords, ref_dict)
 
 def main():
     args = parse_args()
