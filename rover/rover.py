@@ -161,8 +161,10 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 if next_md.size >= cigar_segment_extent:
                     next_md.size -= cigar_segment_extent
                     if next_md.size == 0:
-                        # print seq_index
-			context = aligned_bases[seq_index - 1].base
+			if seq_index <= len(aligned_bases):
+			    context = aligned_bases[seq_index - 1].base
+			else:
+			    context = '-'
 			md = md[1:]
                     cigar = cigar[1:]
                     pos += cigar_segment_extent
@@ -224,8 +226,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             else:
                 logging.info("Non del MD in Del Cigar".format(md_orig, cigar_orig))
                 exit()
-        else:
-            logging.info("unexpected cigar code {}".format(cigar_orig))
+	else:
+	    
+	    logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
     return result
 
@@ -301,6 +304,8 @@ class SNV(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
+    def show_info(self):
+	return self.info[1:]
 
 class Insertion(object):
     # bases are represented just as DNA strings
@@ -331,6 +336,8 @@ class Insertion(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
+    def show_info(self):
+	return self.info[1:]
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -361,6 +368,8 @@ class Deletion(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
+    def show_info(self):
+	return self.info[1:]
 
 class MD_match(object):
     def __init__(self, size):
@@ -508,7 +517,10 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 	    # var.info.append("DP=" + str(num_vars))
             # if num_vars >= args.absthresh and proportion >= args.proportionthresh:
             #     write_variant(kept_variants_file, var, sample)
-  	    if num_vars < args.absthresh:
+  	    var.info.append("NV=" + str(num_vars))
+	    var.info.append("NP=" + str(num_pairs))
+	    var.info.append("PCT=" + str('{:.2%}'.format(float(num_vars)/num_pairs)))
+	    if num_vars < args.absthresh:
 		var.filter = ''.join([nts(var.filter), ";at"])
 	    if proportion < args.proportionthresh:
 		var.filter = ''.join([nts(var.filter), ";pt"])
@@ -530,8 +542,11 @@ def write_metadata(args, file):
     file.write("##reference=file:///" + str(args.reference) + '\n')
     file.write("##contig=" + '\n')
     file.write("##phasing=" + '\n')
-    file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
-    file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
+    file.write("##INFO=<ID=NV,Number=1,Type=Float,Description=\"Number of read pairs with variant\">" + '\n')
+    file.write("##INFO=<ID=NP,Number=1,Type=Float,Description=\"Number of read pairs at POS\">" + '\n')
+    file.write("##INFO=<ID=PCT,Number=1,Type=Float,Description=\"Percentage of read pairs at POS with variant\">" + '\n')
+    # file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
+    # file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
     if args.qualthresh: 
         file.write("##FILTER=<ID=qlt,Description=\"Variant has phred quality score below " + str(args.qualthresh) + "\">" + '\n')
     if args.absthresh:
