@@ -101,6 +101,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     cigar_orig = cigar
     md_orig = md
     # ref = 0
+    context = '-'
     seq_index = 0
     result = []
 
@@ -151,7 +152,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
 #    return result
    
     while cigar and md:
-        cigar_code, cigar_segment_extent = cigar[0]
+	cigar_code, cigar_segment_extent = cigar[0]
 	next_md = md[0]
 
 	if cigar_code == 0:
@@ -160,14 +161,17 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 if next_md.size >= cigar_segment_extent:
                     next_md.size -= cigar_segment_extent
                     if next_md.size == 0:
-                        md = md[1:]
+                        # print seq_index
+			context = aligned_bases[seq_index - 1].base
+			md = md[1:]
                     cigar = cigar[1:]
                     pos += cigar_segment_extent
                     seq_index += cigar_segment_extent
                 else:
                     # next_md.size < cigar_segment_extent
                     cigar = [(cigar_code, cigar_segment_extent - next_md.size)] + cigar[1:]
-                    md = md[1:]
+                    context = aligned_bases[seq_index].base
+		    md = md[1:]
                     pos += next_md.size
                     seq_index += next_md.size
             elif isinstance(next_md, MD_mismatch):
@@ -181,7 +185,8 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
 		     seq_base = seq_base_qual.base
 		     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, ";qlt"))
                  cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
-                 md = md[1:]
+                 context = next_md.ref_base
+		 md = md[1:]
                  pos += 1
                  seq_index += 1
             elif isinstance(next_md, MD_deletion):
@@ -197,9 +202,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                result.append(Insertion(chr, pos, seq_bases, 15, None, '-'))
+                result.append(Insertion(chr, pos, seq_bases, 15, None, context))
 	    else:
-	        result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", '-'))
+	        result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", context))
             cigar = cigar[1:]
             seq_index += cigar_segment_extent
             # pos does not change
@@ -208,9 +213,10 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             if isinstance(next_md, MD_deletion):
                 seq_base = aligned_bases[seq_index]
 		if seq_base.qual >= args.qualthresh:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, None, '-'))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, None, context))
                 else:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, ";qlt", '-'))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, ";qlt", context))
+		context = next_md.ref_bases[0]
 		md = md[1:]
                 cigar = cigar[1:]
                 pos += cigar_segment_extent
