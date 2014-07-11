@@ -226,8 +226,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             else:
                 logging.info("Non del MD in Del Cigar".format(md_orig, cigar_orig))
                 exit()
-	else:
-	    
+	else:	    
 	    logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
     return result
@@ -304,8 +303,6 @@ class SNV(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
-    def show_info(self):
-	return self.info[1:]
 
 class Insertion(object):
     # bases are represented just as DNA strings
@@ -336,8 +333,6 @@ class Insertion(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
-    def show_info(self):
-	return self.info[1:]
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -368,8 +363,6 @@ class Deletion(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
-    def show_info(self):
-	return self.info[1:]
 
 class MD_match(object):
     def __init__(self, size):
@@ -459,7 +452,7 @@ def proportion_overlap(block_start, block_end, read):
 
 def write_variant(file, variant, sample):
     file.write(
-        '\t'.join([variant.chr[3:], str(variant.pos), '.', variant.ref(),
+        '\t'.join([variant.chr[3:], str(variant.pos), sample, variant.ref(),
                    variant.alt(), str(variant.qual), variant.fil(), ';'.join(variant.info)]) + '\n')
 
 def nts(s):
@@ -555,7 +548,7 @@ def write_metadata(args, file):
 	file.write("##FILTER=<ID=pt,Descroption=\"Variant does not appear in at least " + str(args.proportionthresh*100) \
 		+ "% of read pairs for the given region\">" + '\n')
 
-output_header = '\t'.join(["#CHROM", "POS", '', "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
+output_header = '\t'.join(["#CHROM", "POS", '', "ID", '\t', "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
