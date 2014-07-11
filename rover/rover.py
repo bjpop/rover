@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from argparse import (ArgumentParser, FileType)
-from pyfaidx import Fasta
+# from pyfaidx import Fasta
 import datetime
 import logging
 import sys
@@ -97,64 +97,63 @@ def get_MD(read):
 #X   BAM_CDIFF   8
 
 # find all the variants in a single read (SNVs, Insertions, Deletions)
-def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
+def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     cigar_orig = cigar
-    ref = 0
+    md_orig = md
+    # ref = 0
     seq_index = 0
     result = []
 
-    while cigar and seq_index < len(aligned_bases):
-        cigar_code, cigar_segment_extent = cigar[0]
-	if cigar_code == 0:
-	    # Cigar Match
-	    if fasta[ref + 1].upper() == aligned_bases[seq_index].base:
-	    	pos += cigar_segment_extent
-		ref += cigar_segment_extent
-		seq_index += cigar_segment_extent
-		cigar = cigar[1:]
-	    else:
-		seq_base_qual = aligned_bases[seq_index]
-		seq_base = seq_base_qual.base
-		if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
-	            result.append(SNV(chr, pos, fasta[ref + 1], seq_base, seq_base_qual.qual, None))
-		else:
-		    result.append(SNV(chr, pos, fasta[ref + 1], seq_base, seq_base_qual.qual, ";qlt"))
-		cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
-		seq_index += 1
-		ref += 1
-		pos += 1
-
-	elif cigar_code == 1:
-	    extra_bases_quals = aligned_bases[(seq_index):(seq_index + cigar_segment_extent)]
-	    extra_bases = ''.join([b.base for b in extra_bases_quals])
-	    context = fasta[ref - 1]
-	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in extra_bases_quals]):
-	        result.append(Insertion(chr, pos, extra_bases, 15, None, context))
-	    else:
-		result.append(Insertion(chr, pos, extra_bases, 15, ";qlt", context))
-	    cigar = cigar[1:]
-	    seq_index += cigar_segment_extent
-
-	elif cigar_code == 2:
-	    deleted_bases = fasta[ref:(ref + cigar_segment_extent)]
-	    context = fasta[ref - 1]
-	    seq_base = aligned_bases[seq_index]
-	    if seq_base.qual >= args.qualthresh:
-                result.append(Deletion(chr, pos, deleted_bases, 15, None, context))
-	    else:
-		result.append(Deletion(chr, pos, deleted_bases, 15, ";qlt", context))
-	    pos += cigar_segment_extent
-	    ref += cigar_segment_extent
-	    cigar = cigar[1:]
-	else:
-	    logging.info("unexpected cigar code {}".format(cigar_orig))
-	    exit()
-    return result
-"""
-
+#    while cigar and seq_index < len(aligned_bases):
+#        cigar_code, cigar_segment_extent = cigar[0]
+#	if cigar_code == 0:
+#	    # Cigar Match
+#	    if fasta[ref + 1].upper() == aligned_bases[seq_index].base:
+#	    	pos += cigar_segment_extent
+#		ref += cigar_segment_extent
+#		seq_index += cigar_segment_extent
+#		cigar = cigar[1:]
+#	    else:
+#		seq_base_qual = aligned_bases[seq_index]
+#		seq_base = seq_base_qual.base
+#		if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
+#	            result.append(SNV(chr, pos, fasta[ref + 1], seq_base, seq_base_qual.qual, None))
+#		else:
+#		    result.append(SNV(chr, pos, fasta[ref + 1], seq_base, seq_base_qual.qual, ";qlt"))
+#		cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
+#		seq_index += 1
+#		ref += 1
+#		pos += 1
+#	elif cigar_code == 1:
+#	    extra_bases_quals = aligned_bases[(seq_index):(seq_index + cigar_segment_extent)]
+#	    extra_bases = ''.join([b.base for b in extra_bases_quals])
+#	    context = fasta[ref - 1]
+#	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in extra_bases_quals]):
+#	        result.append(Insertion(chr, pos, extra_bases, 15, None, context))
+#	    else:
+#		result.append(Insertion(chr, pos, extra_bases, 15, ";qlt", context))
+#	    cigar = cigar[1:]
+#	    seq_index += cigar_segment_extent
+#	elif cigar_code == 2:
+#	    deleted_bases = fasta[ref:(ref + cigar_segment_extent)]
+#	    context = fasta[ref - 1]
+#	    seq_base = aligned_bases[seq_index]
+#	    if seq_base.qual >= args.qualthresh:
+#               result.append(Deletion(chr, pos, deleted_bases, 15, None, context))
+#	    else:
+#		result.append(Deletion(chr, pos, deleted_bases, 15, ";qlt", context))
+#	    pos += cigar_segment_extent
+#	    ref += cigar_segment_extent
+#	    cigar = cigar[1:]
+#	else:
+#	    logging.info("unexpected cigar code {}".format(cigar_orig))
+#	    exit()
+#    return result
+   
     while cigar and md:
-	cigar_code, cigar_segment_extent = cigar[0]
+        cigar_code, cigar_segment_extent = cigar[0]
 	next_md = md[0]
+
 	if cigar_code == 0:
 	    if isinstance(next_md, MD_match):
                 # MD match 
@@ -177,10 +176,10 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
                  # check if the read base is above the minimum quality score
                  if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
                      seq_base = seq_base_qual.base
-                     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, "PASS"))
+                     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, None))
 		 else:
 		     seq_base = seq_base_qual.base
-		     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, "q10"))
+		     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, ";qlt"))
                  cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
                  md = md[1:]
                  pos += 1
@@ -198,9 +197,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                result.append(Insertion(chr, pos, seq_bases, 15, "PASS", '-'))
+                result.append(Insertion(chr, pos, seq_bases, 15, None, '-'))
 	    else:
-	        result.append(Insertion(chr, pos, seq_bases, 15, "q10", '-'))
+	        result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", '-'))
             cigar = cigar[1:]
             seq_index += cigar_segment_extent
             # pos does not change
@@ -209,9 +208,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
             if isinstance(next_md, MD_deletion):
                 seq_base = aligned_bases[seq_index]
 		if seq_base.qual >= args.qualthresh:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, "PASS", '-'))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, None, '-'))
                 else:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, "q10", '-'))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, ";qlt", '-'))
 		md = md[1:]
                 cigar = cigar[1:]
                 pos += cigar_segment_extent
@@ -223,7 +222,8 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md, fasta):
             logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
     return result
-"""
+
+
 
 # SAM/BAM files store the quality score of a base as a byte (ascii character)
 # in "Qual plus 33 format". So we subtract off 33 from the ascii code
@@ -452,7 +452,7 @@ def nts(s):
 	return ''
     return str(s)
 
-def process_blocks(args, kept_variants_file, bam, sample, block_coords, ref_dict):
+def process_blocks(args, kept_variants_file, bam, sample, block_coords):
     coverage_info = []
     for block_info in block_coords:
         chr, start, end = block_info[:3]
@@ -478,10 +478,8 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, ref_dict
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
 		
-                variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []), \
-			 ref_dict[chr][read1.pos - 1:read1.pos+1000].seq)
-                variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []), \
-			 ref_dict[chr][read2.pos - 1:read2.pos+1000].seq)
+                variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
+                variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
                 # find the variants each read in the pair share in common
@@ -547,7 +545,7 @@ def process_bams(args):
 	# write_metadata(args, binned_variants_file)
 	kept_variants_file.write(output_header + '\n')
         # binned_variants_file.write(output_header + '\n')
-	ref_dict = Fasta(args.reference)
+	# ref_dict = Fasta(args.reference)
 	for bam_filename in args.bams:
             base = os.path.basename(bam_filename)
             sample = base.split('.')
@@ -557,7 +555,7 @@ def process_bams(args):
                 exit('Cannot deduce sample name from bam filename {}'.format(bam_filename))
             with pysam.Samfile(bam_filename, "rb") as bam:
                 logging.info("processing bam file {}".format(bam_filename))
-                process_blocks(args, kept_variants_file, bam, sample, block_coords, ref_dict)
+                process_blocks(args, kept_variants_file, bam, sample, block_coords)
 
 def main():
     args = parse_args()
