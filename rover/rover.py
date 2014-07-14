@@ -154,17 +154,14 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     while cigar and md:
 	cigar_code, cigar_segment_extent = cigar[0]
 	next_md = md[0]
-
+	
 	if cigar_code == 0:
 	    if isinstance(next_md, MD_match):
-                # MD match 
-                if next_md.size >= cigar_segment_extent:
+                # MD match
+		if next_md.size >= cigar_segment_extent:
                     next_md.size -= cigar_segment_extent
-                    if next_md.size == 0:
-			if seq_index <= len(aligned_bases):
-			    context = aligned_bases[seq_index - 1].base
-			else:
-			    context = '-'
+                    if next_md.size  == 0:
+			context = aligned_bases[seq_index + cigar_segment_extent - 1].base
 			md = md[1:]
                     cigar = cigar[1:]
                     pos += cigar_segment_extent
@@ -172,25 +169,25 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 else:
                     # next_md.size < cigar_segment_extent
                     cigar = [(cigar_code, cigar_segment_extent - next_md.size)] + cigar[1:]
-                    context = aligned_bases[seq_index].base
+		    context = aligned_bases[seq_index].base
 		    md = md[1:]
                     pos += next_md.size
                     seq_index += next_md.size
             elif isinstance(next_md, MD_mismatch):
-                 # MD mismatch
-                 seq_base_qual = aligned_bases[seq_index]
-                 # check if the read base is above the minimum quality score
-                 if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
-                     seq_base = seq_base_qual.base
-                     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, None))
-		 else:
-		     seq_base = seq_base_qual.base
-		     result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, ";qlt"))
-                 cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
-                 context = next_md.ref_base
-		 md = md[1:]
-                 pos += 1
-                 seq_index += 1
+                # MD mismatch
+                seq_base_qual = aligned_bases[seq_index]
+                # check if the read base is above the minimum quality score
+                if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
+                    seq_base = seq_base_qual.base
+                    result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, None))
+		else:
+		    seq_base = seq_base_qual.base
+		    result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, ";qlt"))
+                cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
+                context = next_md.ref_base
+		md = md[1:]
+                pos += 1
+                seq_index += 1
             elif isinstance(next_md, MD_deletion):
                 # MD deletion, should not happen in Cigar match
                 logging.info("MD del in cigar match {} {}".format(md_orig, cigar_orig))
@@ -200,7 +197,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 exit()
         elif cigar_code == 1: 
             # Insertion
-            seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
+	    seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
@@ -464,7 +461,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
     coverage_info = []
     for block_info in block_coords:
         chr, start, end = block_info[:3]
-        start = int(start)
+	start = int(start)
         end = int(end)
         logging.info("processing block chr: {}, start: {}, end: {}".format(chr, start, end))
         # process all the reads in one block
@@ -530,7 +527,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 def write_metadata(args, file):
     file.write("##fileformat=VCFv4.2" + '\n')
     today = datetime.date.today()
-    file.write("##fileDate=" + str(today)[:4] + str(today)[8:] + str(today)[5:7] + '\n')
+    file.write("##fileDate=" + str(today)[:4] + str(today)[5:7] + str(today)[8:] + '\n')
     file.write("##source=ROVER-PCR Variant Caller" + '\n')
     file.write("##reference=file:///" + str(args.reference) + '\n')
     file.write("##contig=" + '\n')
