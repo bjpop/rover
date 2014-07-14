@@ -101,10 +101,10 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     cigar_orig = cigar
     md_orig = md
     # ref = 0
-    context = '-'
     seq_index = 0
     result = []
-
+    global context
+    
 #    while cigar and seq_index < len(aligned_bases):
 #        cigar_code, cigar_segment_extent = cigar[0]
 #	if cigar_code == 0:
@@ -196,17 +196,18 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 logging.info("unexpected MD code {}".format(md_orig))
                 exit()
         elif cigar_code == 1: 
-            # Insertion
+            print context
+	    # Insertion
 	    seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                result.append(Insertion(chr, pos, seq_bases, 15, None, context))
+                result.append(Insertion(chr, pos, seq_bases, 15, None, aligned_bases[seq_index - 1].base))
 	    else:
-	        result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", context))
-            cigar = cigar[1:]
+	        result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", aligned_bases[seq_index - 1].base))
+	    cigar = cigar[1:]
             seq_index += cigar_segment_extent
-            # pos does not change
+	    # pos does not change
         elif cigar_code == 2:
             # Deletion
             if isinstance(next_md, MD_deletion):
@@ -482,8 +483,9 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                 #exit()
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
-		
-                variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
+		global context
+		context = '-'
+		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
