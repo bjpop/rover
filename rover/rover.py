@@ -199,22 +199,26 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
         elif cigar_code == 1:
 	    # print pos, cigar, md, context
 	    # Insertion
+	    if cigar_segment_extent > 3:
+		print cigar_segment_extent
 	    seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                # result.append(Insertion(chr, pos, seq_bases, 15, None, aligned_bases[seq_index - 1].base))
-	        result.append(Insertion(chr, pos, seq_bases, 15, None, context))
+                # result.append(Insertion(chr, pos, seq_bases, '-', None, aligned_bases[seq_index - 1].base))
+	        result.append(Insertion(chr, pos, seq_bases, '-', None, context))
 	    else:
-	        # result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", aligned_bases[seq_index - 1].base))
-	    	result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", context))
+	        # result.append(Insertion(chr, pos, seq_bases, '-', ";qlt", aligned_bases[seq_index - 1].base))
+	    	result.append(Insertion(chr, pos, seq_bases, '-', ";qlt", context))
 	    cigar = cigar[1:]
             seq_index += cigar_segment_extent
 	    # pos does not change
         elif cigar_code == 2:
             # Deletion
             if isinstance(next_md, MD_deletion):
-                seq_base = aligned_bases[seq_index]
+                if cigar_segment_extent > 3:
+		    print cigar_segment_extent
+		seq_base = aligned_bases[seq_index]
 		if seq_base.qual >= args.qualthresh:
 		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, None, context))
                 else:
@@ -334,7 +338,7 @@ class Insertion(object):
 	    self.context = '-'
 	elif self.context == 'H':
 	    self.info.append("HC=T")
-	    self.context = '-'	
+	    self.context = '-'
 
     def __str__(self):
         return "I: {} {} {}".format(self.chr, self.pos, self.inserted_bases)
@@ -488,6 +492,7 @@ def write_variant(file, variant, sample):
                    variant.alt(), str(variant.qual), variant.fil(), ';'.join(variant.info)]) + '\n')
 
 def nts(s):
+    # Turns None into an empty string
     if s is None:
 	return ''
     return str(s)
@@ -517,8 +522,6 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                 #exit()
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
-		# global context
-		# context = '-'
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
@@ -540,9 +543,6 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
             num_vars = block_vars[var]
             proportion = float(num_vars) / num_pairs
             proportion_str = "{:.2f}".format(proportion)
-	    # var.info.append("DP=" + str(num_vars))
-            # if num_vars >= args.absthresh and proportion >= args.proportionthresh:
-            #     write_variant(kept_variants_file, var, sample)
   	    var.info.append("NV=" + str(num_vars))
 	    var.info.append("NP=" + str(num_pairs))
 	    var.info.append("PCT=" + str('{:.2%}'.format(float(num_vars)/num_pairs)))
