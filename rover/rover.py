@@ -328,10 +328,13 @@ class Insertion(object):
 	self.context = context
 	if self.context == None:
 	    self.info.append("BS=T")
+	    self.context = '-'
 	elif self.context == 'S':
 	    self.info.append("SC=T")
+	    self.context = '-'
 	elif self.context == 'H':
-	    self.info.append("HC=T")	
+	    self.info.append("HC=T")
+	    self.context = '-'	
 
     def __str__(self):
         return "I: {} {} {}".format(self.chr, self.pos, self.inserted_bases)
@@ -365,10 +368,13 @@ class Deletion(object):
 	self.context = context
 	if self.context == None:
 	    self.info.append("BS=T")
+	    self.context = '-'
 	elif self.context == 'S':
 	    self.info.append("SC=T")
+	    self.context = '-'
 	elif self.context == 'H':
 	    self.info.append("HC=T")
+	    self.context = '-'
 
     def __str__(self):
         return "D: {} {} {}".format(self.chr, self.pos, self.deleted_bases)
