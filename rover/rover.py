@@ -151,26 +151,27 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
 #	    logging.info("unexpected cigar code {}".format(cigar_orig))
 #	    exit()
 #    return result
-   
+    
     while cigar and md:
 	cigar_code, cigar_segment_extent = cigar[0]
 	next_md = md[0]
-	
+
 	if cigar_code == 0:
 	    if isinstance(next_md, MD_match):
                 # MD match
 		if next_md.size >= cigar_segment_extent:
                     next_md.size -= cigar_segment_extent
                     if next_md.size  == 0:
-			context = aligned_bases[seq_index + cigar_segment_extent - 1].base
+		        # context = aligned_bases[seq_index + cigar_segment_extent - 1].base
 			md = md[1:]
-                    cigar = cigar[1:]
+                    context = aligned_bases[seq_index + cigar_segment_extent - 1].base
+		    cigar = cigar[1:]
                     pos += cigar_segment_extent
                     seq_index += cigar_segment_extent
                 else:
                     # next_md.size < cigar_segment_extent
                     cigar = [(cigar_code, cigar_segment_extent - next_md.size)] + cigar[1:]
-		    context = aligned_bases[seq_index].base
+		    context = aligned_bases[seq_index].base 
 		    md = md[1:]
                     pos += next_md.size
                     seq_index += next_md.size
@@ -196,12 +197,15 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             else:
                 logging.info("unexpected MD code {}".format(md_orig))
                 exit()
-        elif cigar_code == 1: 
+        elif cigar_code == 1:
+	    print pos, cigar, md, context
 	    # Insertion
 	    seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
-            if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
+            if context == '-':
+		context = aligned_bases[seq_index - 1].base
+	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
                 # result.append(Insertion(chr, pos, seq_bases, 15, None, aligned_bases[seq_index - 1].base))
 	        result.append(Insertion(chr, pos, seq_bases, 15, None, context))
 	    else:
