@@ -103,8 +103,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     # ref = 0
     seq_index = 0
     result = []
-    global context
-    
+    # global context
+    context = '-'    
+
 #    while cigar and seq_index < len(aligned_bases):
 #        cigar_code, cigar_segment_extent = cigar[0]
 #	if cigar_code == 0:
@@ -196,15 +197,16 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 logging.info("unexpected MD code {}".format(md_orig))
                 exit()
         elif cigar_code == 1: 
-            print context
 	    # Insertion
 	    seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                result.append(Insertion(chr, pos, seq_bases, 15, None, aligned_bases[seq_index - 1].base))
+                # result.append(Insertion(chr, pos, seq_bases, 15, None, aligned_bases[seq_index - 1].base))
+	        result.append(Insertion(chr, pos, seq_bases, 15, None, context))
 	    else:
-	        result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", aligned_bases[seq_index - 1].base))
+	        # result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", aligned_bases[seq_index - 1].base))
+	    	result.append(Insertion(chr, pos, seq_bases, 15, ";qlt", context))
 	    cigar = cigar[1:]
             seq_index += cigar_segment_extent
 	    # pos does not change
@@ -228,7 +230,6 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
 	    logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
     return result
-
 
 
 # SAM/BAM files store the quality score of a base as a byte (ascii character)
@@ -312,6 +313,9 @@ class Insertion(object):
 	self.filter = filter
 	self.info = []
 	self.context = context
+	if self.context == '-':
+	    self.info.append("BS=T")
+	
     def __str__(self):
         return "I: {} {} {}".format(self.chr, self.pos, self.inserted_bases)
     def __repr__(self):
@@ -325,7 +329,7 @@ class Insertion(object):
     def ref(self):
         return self.context
     def alt(self):
-        return self.context + self.inserted_bases
+	return self.context + self.inserted_bases
     def fil(self):
         if self.filter is None:
 	    return "PASS"
@@ -342,6 +346,8 @@ class Deletion(object):
 	self.filter = filter
 	self.info = []
 	self.context = context
+	if self.context == '-':
+	    self.info.append("BS=T")
     def __str__(self):
         return "D: {} {} {}".format(self.chr, self.pos, self.deleted_bases)
     def __repr__(self):
@@ -353,9 +359,9 @@ class Deletion(object):
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
-        return self.context + self.deleted_bases
+	return self.context + self.deleted_bases
     def alt(self):
-        return self.context
+	return self.context
     def fil(self):
 	if self.filter is None:
 	    return "PASS"
@@ -483,8 +489,8 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                 #exit()
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
-		global context
-		context = '-'
+		# global context
+		# context = '-'
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
@@ -537,6 +543,7 @@ def write_metadata(args, file):
     file.write("##INFO=<ID=NV,Number=1,Type=Float,Description=\"Number of read pairs with variant\">" + '\n')
     file.write("##INFO=<ID=NP,Number=1,Type=Float,Description=\"Number of read pairs at POS\">" + '\n')
     file.write("##INFO=<ID=PCT,Number=1,Type=Float,Description=\"Percentage of read pairs at POS with variant\">" + '\n')
+    file.write("##INFO=<ID=BS,Number=1,Type=String,Description=\"Context base cannot be determined as indel is located near start of block\">" + '\n')
     # file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
     # file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
     if args.qualthresh: 
