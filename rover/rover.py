@@ -23,7 +23,7 @@ def parse_args():
 
     parser = ArgumentParser(description="Consider mapped reads to amplicon sites")
     parser.add_argument('--reference', type=str, 
-	help='File name of reference DNA sequence in FASTA format.')
+	 help='File name of reference DNA sequence in FASTA format.')
     parser.add_argument(
     '--version', action='version', version='%(prog)s ' + rover_version)
     parser.add_argument(
@@ -104,7 +104,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     seq_index = 0
     result = []
     # global context
-    context = '-'    
+    context = None    
 
 #    while cigar and seq_index < len(aligned_bases):
 #        cigar_code, cigar_segment_extent = cigar[0]
@@ -162,8 +162,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
 		if next_md.size >= cigar_segment_extent:
                     next_md.size -= cigar_segment_extent
                     if next_md.size  == 0:
-		        # context = aligned_bases[seq_index + cigar_segment_extent - 1].base
-			md = md[1:]
+		        md = md[1:]
                     context = aligned_bases[seq_index + cigar_segment_extent - 1].base
 		    cigar = cigar[1:]
                     pos += cigar_segment_extent
@@ -198,14 +197,12 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 logging.info("unexpected MD code {}".format(md_orig))
                 exit()
         elif cigar_code == 1:
-	    print pos, cigar, md, context
+	    # print pos, cigar, md, context
 	    # Insertion
 	    seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
-            if context == '-':
-		context = aligned_bases[seq_index - 1].base
-	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
+            if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
                 # result.append(Insertion(chr, pos, seq_bases, 15, None, aligned_bases[seq_index - 1].base))
 	        result.append(Insertion(chr, pos, seq_bases, 15, None, context))
 	    else:
@@ -230,6 +227,18 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             else:
                 logging.info("Non del MD in Del Cigar".format(md_orig, cigar_orig))
                 exit()
+	elif cigar_code == 4:
+	    # soft clipping
+	    context = 'S'
+	    md = md[1:]
+	    pos += 1
+	    seq_index += 1
+	elif cigar_code == 5:
+	    # hard clipping, context base for next indel cannot be determined
+	    context = 'H'
+	    md = md[1:]
+	    pos += 1
+	    seq_index += 1
 	else:	    
 	    logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
@@ -317,9 +326,13 @@ class Insertion(object):
 	self.filter = filter
 	self.info = []
 	self.context = context
-	if self.context == '-':
+	if self.context == None:
 	    self.info.append("BS=T")
-	
+	elif self.context == 'S':
+	    self.info.append("SC=T")
+	elif self.context == 'H':
+	    self.info.append("HC=T")	
+
     def __str__(self):
         return "I: {} {} {}".format(self.chr, self.pos, self.inserted_bases)
     def __repr__(self):
@@ -350,8 +363,13 @@ class Deletion(object):
 	self.filter = filter
 	self.info = []
 	self.context = context
-	if self.context == '-':
+	if self.context == None:
 	    self.info.append("BS=T")
+	elif self.context == 'S':
+	    self.info.append("SC=T")
+	elif self.context == 'H':
+	    self.info.append("HC=T")
+
     def __str__(self):
         return "D: {} {} {}".format(self.chr, self.pos, self.deleted_bases)
     def __repr__(self):
@@ -541,13 +559,18 @@ def write_metadata(args, file):
     today = datetime.date.today()
     file.write("##fileDate=" + str(today)[:4] + str(today)[5:7] + str(today)[8:] + '\n')
     file.write("##source=ROVER-PCR Variant Caller" + '\n')
-    file.write("##reference=file:///" + str(args.reference) + '\n')
+    if args.reference:
+	file.write("##reference=file:///" + str(args.reference) + '\n')
     file.write("##contig=" + '\n')
     file.write("##phasing=" + '\n')
     file.write("##INFO=<ID=NV,Number=1,Type=Float,Description=\"Number of read pairs with variant\">" + '\n')
     file.write("##INFO=<ID=NP,Number=1,Type=Float,Description=\"Number of read pairs at POS\">" + '\n')
     file.write("##INFO=<ID=PCT,Number=1,Type=Float,Description=\"Percentage of read pairs at POS with variant\">" + '\n')
     file.write("##INFO=<ID=BS,Number=1,Type=String,Description=\"Context base cannot be determined as indel is located near start of block\">" + '\n')
+    file.write("##INFO=<ID=HC,Number=1,Type=String,Description=\"Context base cannot be determined due to \
+hard clipping on the aligned sequence prior to indel event\">" + '\n')
+    file.write("##INFO=<ID=SC,Number=1,Type=String,Description=\"Context base cannot be determined due to \
+soft clipping on the aligned sequence prior to indel event\">" + '\n')
     # file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
     # file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
     if args.qualthresh: 
