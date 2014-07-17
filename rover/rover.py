@@ -100,10 +100,8 @@ def get_MD(read):
 def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     cigar_orig = cigar
     md_orig = md
-    # ref = 0
     seq_index = 0
     result = []
-    # global context
     context = None    
 
 #    while cigar and seq_index < len(aligned_bases):
@@ -155,7 +153,6 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     while cigar and md:
 	cigar_code, cigar_segment_extent = cigar[0]
 	next_md = md[0]
-
 	if cigar_code == 0:
 	    if isinstance(next_md, MD_match):
                 # MD match
@@ -170,12 +167,12 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 else:
                     # next_md.size < cigar_segment_extent
                     cigar = [(cigar_code, cigar_segment_extent - next_md.size)] + cigar[1:]
-		    context = aligned_bases[seq_index].base 
+		    context = aligned_bases[seq_index + next_md.size - 1].base
 		    md = md[1:]
                     pos += next_md.size
                     seq_index += next_md.size
             elif isinstance(next_md, MD_mismatch):
-                # MD mismatch
+		# MD mismatch
                 seq_base_qual = aligned_bases[seq_index]
                 # check if the read base is above the minimum quality score
                 if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
@@ -197,33 +194,27 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 logging.info("unexpected MD code {}".format(md_orig))
                 exit()
         elif cigar_code == 1:
-	    # print pos, cigar, md, context
 	    # Insertion
-	    if cigar_segment_extent > 3:
-		print cigar_segment_extent
 	    seq_bases_quals = aligned_bases[seq_index:seq_index + cigar_segment_extent]
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                # result.append(Insertion(chr, pos, seq_bases, '-', None, aligned_bases[seq_index - 1].base))
-	        result.append(Insertion(chr, pos, seq_bases, '-', None, context))
+                result.append(Insertion(chr, pos, seq_bases, '-', None, context))
 	    else:
-	        # result.append(Insertion(chr, pos, seq_bases, '-', ";qlt", aligned_bases[seq_index - 1].base))
-	    	result.append(Insertion(chr, pos, seq_bases, '-', ";qlt", context))
+	        result.append(Insertion(chr, pos, seq_bases, '-', ";qlt", context))
 	    cigar = cigar[1:]
             seq_index += cigar_segment_extent
 	    # pos does not change
         elif cigar_code == 2:
             # Deletion
             if isinstance(next_md, MD_deletion):
-                if cigar_segment_extent > 3:
-		    print cigar_segment_extent
-		seq_base = aligned_bases[seq_index]
+                seq_base = aligned_bases[seq_index]
 		if seq_base.qual >= args.qualthresh:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, None, context))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, '-', None, context))
                 else:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, seq_base.qual, ";qlt", context))
-		context = next_md.ref_bases[0]
+		    result.append(Deletion(chr, pos, next_md.ref_bases, '-', ";qlt", context))
+		context = next_md.ref_bases[-1]
+		# context = 'A'
 		md = md[1:]
                 cigar = cigar[1:]
                 pos += cigar_segment_extent
@@ -235,14 +226,16 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
 	    # soft clipping
 	    context = 'S'
 	    md = md[1:]
-	    pos += 1
-	    seq_index += 1
+	    cigar = cigar[1:]
+	    # pos += cigar_segment_extent
+	    seq_index += cigar_segment_extent
 	elif cigar_code == 5:
-	    # hard clipping, context base for next indel cannot be determined
+	    # hard clipping
 	    context = 'H'
 	    md = md[1:]
-	    pos += 1
-	    seq_index += 1
+	    cigar = cigar[1:]
+	    # pos += cigar_segment_extent
+	    # seq_index += cigar_segment_extent
 	else:	    
 	    logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
@@ -319,6 +312,8 @@ class SNV(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
+    def position(self):
+	return self.pos
 
 class Insertion(object):
     # bases are represented just as DNA strings
@@ -339,7 +334,6 @@ class Insertion(object):
 	elif self.context == 'H':
 	    self.info.append("HC=T")
 	    self.context = '-'
-
     def __str__(self):
         return "I: {} {} {}".format(self.chr, self.pos, self.inserted_bases)
     def __repr__(self):
@@ -359,6 +353,8 @@ class Insertion(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
+    def position(self):
+	return self.pos - 1
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -379,7 +375,6 @@ class Deletion(object):
 	elif self.context == 'H':
 	    self.info.append("HC=T")
 	    self.context = '-'
-
     def __str__(self):
         return "D: {} {} {}".format(self.chr, self.pos, self.deleted_bases)
     def __repr__(self):
@@ -399,6 +394,8 @@ class Deletion(object):
 	    return "PASS"
 	else:
 	    return self.filter[1:]
+    def position(self):
+	return self.pos - 1
 
 class MD_match(object):
     def __init__(self, size):
@@ -486,10 +483,33 @@ def proportion_overlap(block_start, block_end, read):
         block_size = block_end - block_start + 1
         return float(overlap_size) / block_size
 
-def write_variant(file, variant, sample):
-    file.write(
-        '\t'.join([variant.chr[3:], str(variant.pos), sample, variant.ref(),
-                   variant.alt(), str(variant.qual), variant.fil(), ';'.join(variant.info)]) + '\n')
+def write_variant(file, variant, sample, args):
+    """
+    global repeats
+    global line
+    global kept_variants_file
+    if (sample, variant.pos) in repeats.keys():
+	print "repeated " + sample + '' + str(variant.pos)
+	kept_variants_file.close()
+	kept_variants_file = open(args.out, "r+")
+	line_offset = []
+	offset = 0
+	for row in kept_variants_file:
+	    line_offset.append(offset)
+	    offset += len(row)
+	kept_variants_file.seek(0)
+	# file.seek(line_offset[repeats[(sample, variant.pos, variant.ref(), variant.alt())]])
+	kept_variants_file.seek(line_offset[repeats[(sample, variant.pos)]] - 1)
+	kept_variants_file.write("Repeat would go here." + '\n')
+	kept_variants_file.close()
+	kept_variants_file = open(args.out, "w")
+    else:
+	# repeats[(sample, variant.pos, variant.ref(), variant.alt())] = line
+	repeats[(sample, variant.pos)] = line
+    """
+    file.write('\t'.join([variant.chr[3:], str(variant.position()), \
+sample, variant.ref(), variant.alt(), str(variant.qual), variant.fil(), ';'.join(variant.info)]) + '\n')
+	# line += 1
 
 def nts(s):
     # Turns None into an empty string
@@ -550,7 +570,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 		var.filter = ''.join([nts(var.filter), ";at"])
 	    if proportion < args.proportionthresh:
 		var.filter = ''.join([nts(var.filter), ";pt"])
-	    write_variant(kept_variants_file, var, sample)
+	    write_variant(kept_variants_file, var, sample, args)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     if args.coverdir is not None:
@@ -561,12 +581,14 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
             coverage_file.write('{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs))
 
 def write_metadata(args, file):
+    global line
     file.write("##fileformat=VCFv4.2" + '\n')
     today = datetime.date.today()
     file.write("##fileDate=" + str(today)[:4] + str(today)[5:7] + str(today)[8:] + '\n')
     file.write("##source=ROVER-PCR Variant Caller" + '\n')
     if args.reference:
 	file.write("##reference=file:///" + str(args.reference) + '\n')
+	# line += 1
     file.write("##contig=" + '\n')
     file.write("##phasing=" + '\n')
     file.write("##INFO=<ID=NV,Number=1,Type=Float,Description=\"Number of read pairs with variant\">" + '\n')
@@ -581,15 +603,27 @@ soft clipping on the aligned sequence prior to indel event\">" + '\n')
     # file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
     if args.qualthresh: 
         file.write("##FILTER=<ID=qlt,Description=\"Variant has phred quality score below " + str(args.qualthresh) + "\">" + '\n')
+	# line += 1
     if args.absthresh:
 	file.write("##FILTER=<ID=at,Description=\"Variant does not appear in at least " + str(args.absthresh) + " read pairs\">" + '\n')
+	# line += 1
     if args.proportionthresh:
 	file.write("##FILTER=<ID=pt,Descroption=\"Variant does not appear in at least " + str(args.proportionthresh*100) \
 		+ "% of read pairs for the given region\">" + '\n')
+	# line += 1
 
+# Extra formatting applied to column headings so that everything lines up
 output_header = '\t'.join(["#CHROM", "POS", '', "ID", '\t', "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
+# Proper tab separated column headings
+# output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
+
 def process_bams(args):
+    """global repeats
+    global line
+    global kept_variants_file
+    line = 12
+    repeats = {}"""
     block_coords = get_block_coords(args.primers)
     # with open(args.out, "w") as kept_variants_file, \
     #      open(args.out + '.binned', "w") as binned_variants_file:
