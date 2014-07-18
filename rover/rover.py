@@ -314,6 +314,11 @@ class SNV(object):
 	    return self.filter[1:]
     def position(self):
 	return self.pos
+    def quality(self):
+	if self.qual == '-':
+	    return self.qual
+	else:
+	    return str('{:.2%}'.format(self.qual/100.0))
 
 class Insertion(object):
     # bases are represented just as DNA strings
@@ -355,6 +360,8 @@ class Insertion(object):
 	    return self.filter[1:]
     def position(self):
 	return self.pos - 1
+    def quality(self):
+	return self.qual
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -396,6 +403,8 @@ class Deletion(object):
 	    return self.filter[1:]
     def position(self):
 	return self.pos - 1
+    def quality(self):
+	return self.qual
 
 class MD_match(object):
     def __init__(self, size):
@@ -508,7 +517,7 @@ def write_variant(file, variant, sample, args):
 	repeats[(sample, variant.pos)] = line
     """
     file.write('\t'.join([variant.chr[3:], str(variant.position()), \
-sample, variant.ref(), variant.alt(), str(variant.qual), variant.fil(), ';'.join(variant.info)]) + '\n')
+'.', variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
 	# line += 1
 
 def nts(s):
@@ -552,24 +561,34 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                     # only consider variants within the bounds of the block
                     if var.pos >= start and var.pos <= end:
                         if var in block_vars:
-                            block_vars[var] += 1
+                            # print var.qual
+			    if var.qual == '-':
+				block_vars[var] = (block_vars[var][0] + 1, var.qual)
+			    else:
+				block_vars[var] = tuple(map(sum, zip(block_vars[var], (1, var.qual))))
                         else:
-                            block_vars[var] = 1
+                            block_vars[var] = (1, var.qual)
             else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
         for var in block_vars:
-            num_vars = block_vars[var]
+            num_vars = block_vars[var][0]
             proportion = float(num_vars) / num_pairs
             proportion_str = "{:.2f}".format(proportion)
-  	    var.info.append("NV=" + str(num_vars))
+  	    var.info.append("Sample=" + str(sample))
+	    var.info.append("NV=" + str(num_vars))
 	    var.info.append("NP=" + str(num_pairs))
 	    var.info.append("PCT=" + str('{:.2%}'.format(float(num_vars)/num_pairs)))
 	    if num_vars < args.absthresh:
 		var.filter = ''.join([nts(var.filter), ";at"])
 	    if proportion < args.proportionthresh:
 		var.filter = ''.join([nts(var.filter), ";pt"])
+	    # print block_vars[var][1], num_vars
+	    if block_vars[var][1] == '-':
+		var.qual = '-'
+	    else:
+		var.qual = (block_vars[var][1])/float(num_vars)
 	    write_variant(kept_variants_file, var, sample, args)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
@@ -589,8 +608,9 @@ def write_metadata(args, file):
     if args.reference:
 	file.write("##reference=file:///" + str(args.reference) + '\n')
 	# line += 1
-    file.write("##contig=" + '\n')
-    file.write("##phasing=" + '\n')
+    # file.write("##contig=" + '\n')
+    # file.write("##phasing=" + '\n')
+    file.write("##INFO=<ID=Sample,Number=1,Type=String,Description=\"Sample Name\">" + '\n')
     file.write("##INFO=<ID=NV,Number=1,Type=Float,Description=\"Number of read pairs with variant\">" + '\n')
     file.write("##INFO=<ID=NP,Number=1,Type=Float,Description=\"Number of read pairs at POS\">" + '\n')
     file.write("##INFO=<ID=PCT,Number=1,Type=Float,Description=\"Percentage of read pairs at POS with variant\">" + '\n')
@@ -613,7 +633,7 @@ soft clipping on the aligned sequence prior to indel event\">" + '\n')
 	# line += 1
 
 # Extra formatting applied to column headings so that everything lines up
-output_header = '\t'.join(["#CHROM", "POS", '', "ID", '\t', "REF", "ALT", "QUAL", "FILTER", "INFO"])
+output_header = '\t'.join(["#CHROM", "POS", '', "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
 # Proper tab separated column headings
 # output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
