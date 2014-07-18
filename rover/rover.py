@@ -214,7 +214,6 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 else:
 		    result.append(Deletion(chr, pos, next_md.ref_bases, '-', ";qlt", context))
 		context = next_md.ref_bases[-1]
-		# context = 'A'
 		md = md[1:]
                 cigar = cigar[1:]
                 pos += cigar_segment_extent
@@ -227,15 +226,12 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
 	    context = 'S'
 	    md = md[1:]
 	    cigar = cigar[1:]
-	    # pos += cigar_segment_extent
 	    seq_index += cigar_segment_extent
 	elif cigar_code == 5:
 	    # hard clipping
 	    context = 'H'
 	    md = md[1:]
 	    cigar = cigar[1:]
-	    # pos += cigar_segment_extent
-	    # seq_index += cigar_segment_extent
 	else:	    
 	    logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
@@ -316,7 +312,7 @@ class SNV(object):
 	return self.pos
     def quality(self):
 	if self.qual == '-':
-	    return self.qual
+	    return '.'
 	else:
 	    return str('{:.2%}'.format(self.qual/100.0))
 
@@ -361,7 +357,10 @@ class Insertion(object):
     def position(self):
 	return self.pos - 1
     def quality(self):
-	return self.qual
+	if self.qual == '-':
+	    return '.'
+	else:
+	    return self.qual
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -404,7 +403,10 @@ class Deletion(object):
     def position(self):
 	return self.pos - 1
     def quality(self):
-	return self.qual
+	if self.qual == '-':
+	    return '.'
+	else:
+	    return self.qual
 
 class MD_match(object):
     def __init__(self, size):
@@ -518,7 +520,6 @@ def write_variant(file, variant, sample, args):
     """
     file.write('\t'.join([variant.chr[3:], str(variant.position()), \
 '.', variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
-	# line += 1
 
 def nts(s):
     # Turns None into an empty string
@@ -561,8 +562,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                     # only consider variants within the bounds of the block
                     if var.pos >= start and var.pos <= end:
                         if var in block_vars:
-                            # print var.qual
-			    if var.qual == '-':
+                            if var.qual == '-':
 				block_vars[var] = (block_vars[var][0] + 1, var.qual)
 			    else:
 				block_vars[var] = tuple(map(sum, zip(block_vars[var], (1, var.qual))))
@@ -579,12 +579,11 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
   	    var.info.append("Sample=" + str(sample))
 	    var.info.append("NV=" + str(num_vars))
 	    var.info.append("NP=" + str(num_pairs))
-	    var.info.append("PCT=" + str('{:.2%}'.format(float(num_vars)/num_pairs)))
+	    var.info.append("PCT=" + str('{:.2%}'.format(proportion)))
 	    if num_vars < args.absthresh:
 		var.filter = ''.join([nts(var.filter), ";at"])
 	    if proportion < args.proportionthresh:
 		var.filter = ''.join([nts(var.filter), ";pt"])
-	    # print block_vars[var][1], num_vars
 	    if block_vars[var][1] == '-':
 		var.qual = '-'
 	    else:
@@ -600,14 +599,12 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
             coverage_file.write('{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs))
 
 def write_metadata(args, file):
-    global line
     file.write("##fileformat=VCFv4.2" + '\n')
     today = datetime.date.today()
     file.write("##fileDate=" + str(today)[:4] + str(today)[5:7] + str(today)[8:] + '\n')
     file.write("##source=ROVER-PCR Variant Caller" + '\n')
     if args.reference:
 	file.write("##reference=file:///" + str(args.reference) + '\n')
-	# line += 1
     # file.write("##contig=" + '\n')
     # file.write("##phasing=" + '\n')
     file.write("##INFO=<ID=Sample,Number=1,Type=String,Description=\"Sample Name\">" + '\n')
@@ -623,14 +620,11 @@ soft clipping on the aligned sequence prior to indel event\">" + '\n')
     # file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
     if args.qualthresh: 
         file.write("##FILTER=<ID=qlt,Description=\"Variant has phred quality score below " + str(args.qualthresh) + "\">" + '\n')
-	# line += 1
     if args.absthresh:
 	file.write("##FILTER=<ID=at,Description=\"Variant does not appear in at least " + str(args.absthresh) + " read pairs\">" + '\n')
-	# line += 1
     if args.proportionthresh:
 	file.write("##FILTER=<ID=pt,Descroption=\"Variant does not appear in at least " + str(args.proportionthresh*100) \
 		+ "% of read pairs for the given region\">" + '\n')
-	# line += 1
 
 # Extra formatting applied to column headings so that everything lines up
 output_header = '\t'.join(["#CHROM", "POS", '', "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
@@ -639,11 +633,6 @@ output_header = '\t'.join(["#CHROM", "POS", '', "ID", "REF", "ALT", "QUAL", "FIL
 # output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
 def process_bams(args):
-    """global repeats
-    global line
-    global kept_variants_file
-    line = 12
-    repeats = {}"""
     block_coords = get_block_coords(args.primers)
     # with open(args.out, "w") as kept_variants_file, \
     #      open(args.out + '.binned', "w") as binned_variants_file:
