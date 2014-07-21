@@ -587,7 +587,9 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
         logging.info("number of variants found in block: {}".format(len(block_vars)))
         
 	# Detecting variants in the primer regions
-	variant_bases = 0
+	p_snvs = 0
+	p_insertions = 0
+	p_deletions = 0
 	for var in primer_vars:
 	    num_primer_vars = primer_vars[var][0]
 	    proportion = float(num_primer_vars) / num_pairs
@@ -595,13 +597,13 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 	    var.info.append("NV=" + str(num_primer_vars))
 	    var.info.append("NP=" + str(num_pairs))
 	    var.info.append("PCT=" + str("{:.2%}".format(proportion)))
-    	    if (num_primer_vars > args.absthresh) and (proportion > args.proportionthresh):
+    	    if (num_primer_vars < args.absthresh) and (proportion < args.proportionthresh):
 	    	if isinstance(var, Insertion):
-		    variant_bases += len(var.inserted_bases)
+		    p_insertions += len(var.inserted_bases)
 	    	elif isinstance(var, Deletion):
-		    variant_bases += len(var.deleted_bases)
+		    p_deletions += len(var.deleted_bases)
 	    	elif isinstance(var, SNV):
-		    variant_bases += 1
+		    p_snvs += 1
 	    if num_primer_vars < args.absthresh:
 		var.filter = ''.join([nts(var.filter), ";at"])
 	    if proportion < args.proportionthresh:
@@ -611,10 +613,12 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 	    else:
 		var.qual = (primer_vars[var][1])/float(num_primer_vars)
 	    write_variant(kept_variants_file, var, sample, args)
-	
-	# print start, variant_bases
-	if variant_bases > 0:
-	    print start, variant_bases
+
+	if p_snvs > 0 or p_insertions > 0 or p_deletions > 0:
+	    print "Variants were detected in the primer region of the block starting at position " + str(start) + " as follows:"
+	    print "SNVs: " + str(p_snvs) + " modified bases in total"
+	    print "Insertions: " + str(p_insertions) + " inserted bases in total"
+	    print "Deletions: " + str(p_deletions) + " deleted bases in total" + '\n'
 
 	for var in block_vars:
             num_vars = block_vars[var][0]
