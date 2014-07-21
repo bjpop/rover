@@ -497,7 +497,7 @@ def proportion_overlap(block_start, block_end, read):
         block_size = block_end - block_start + 1
         return float(overlap_size) / block_size
 
-def write_variant(file, variant, sample, args):
+def write_variant(file, variant):
     """global repeats
     global line
     global kept_variants_file
@@ -530,6 +530,7 @@ def nts(s):
     return str(s)
 
 def printable_base(num):
+    # Correct plurality
     if num == 1:
 	return "base"
     else:
@@ -601,7 +602,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 	for var in primer_vars:
 	    num_primer_vars = primer_vars[var][0]
 	    proportion = float(num_primer_vars) / num_pairs
-	    var.info.append("Sample=Primer")
+	    var.info.append("Sample=" + str(block_info[3]))
 	    var.info.append("NV=" + str(num_primer_vars))
 	    var.info.append("NP=" + str(num_pairs))
 	    var.info.append("PCT=" + str("{:.2%}".format(proportion)))
@@ -612,6 +613,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 		    p_deletions += len(var.deleted_bases)
 	    	elif isinstance(var, SNV):
 		    p_snvs += 1
+		write_variant(kept_variants_file, var)
 	    if num_primer_vars < args.absthresh:
 		var.filter = ''.join([nts(var.filter), ";at"])
 	    if proportion < args.proportionthresh:
@@ -625,10 +627,11 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 	if p_snvs > 0 or p_insertions > 0 or p_deletions > 0:
 	    print "Variant(s) were detected in the primer region of sample " + str(sample) + " in the block starting at \
 position " + str(start) + " as follows:"
-	    print "SNVs: " + str(p_snvs) + " modified " + printable_base(p_snvs) + " in total"
-	    print "Insertions: " + str(p_insertions) + " inserted " + printable_base(p_insertions) + " in total"
-	    print "Deletions: " + str(p_deletions) + " deleted " + printable_base(p_deletions) + " in total" + '\n'
-	
+	    print "SNVs: " + str(p_snvs) + " modified " + printable_base(p_snvs)
+	    print "Insertions: " + str(p_insertions) + " inserted " + printable_base(p_insertions)
+	    print "Deletions: " + str(p_deletions) + " deleted " + printable_base(p_deletions)
+	    print "Variant calls in this block have been marked with \"HP=T\" in the INFO column" + '\n'	
+
 	expected_primer = 0
 	if (p_snvs + p_insertions + p_deletions) < args.primerthresh:
 	    expected_primer = 1
@@ -651,7 +654,7 @@ position " + str(start) + " as follows:"
 		var.qual = (block_vars[var][1])/float(num_vars)
 	    if expected_primer == 0:
 		var.info.append("HP=T")
-	    write_variant(kept_variants_file, var, sample, args)
+	    write_variant(kept_variants_file, var)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     if args.coverdir is not None:
@@ -674,7 +677,7 @@ def write_metadata(args, file):
     file.write("##INFO=<ID=NV,Number=1,Type=Float,Description=\"Number of read pairs with variant\">" + '\n')
     file.write("##INFO=<ID=NP,Number=1,Type=Float,Description=\"Number of read pairs at POS\">" + '\n')
     file.write("##INFO=<ID=PCT,Number=1,Type=Float,Description=\"Percentage of read pairs at POS with variant\">" + '\n')
-    file.write("##INFO=<ID=BS,Number=1,Type=String,Description=\"Context base cannot be determined as indel is located near start of block\">" + '\n')
+    file.write("##INFO=<ID=BS,Number=1,Type=String,Description=\"Context base cannot be determined as indel is located near a region not covered by the MD string\">" + '\n')
     file.write("##INFO=<ID=HC,Number=1,Type=String,Description=\"Context base cannot be determined due to \
 hard clipping on the aligned sequence prior to indel event\">" + '\n')
     file.write("##INFO=<ID=SC,Number=1,Type=String,Description=\"Context base cannot be determined due to \
