@@ -314,7 +314,7 @@ class SNV(object):
 	if self.qual == '-':
 	    return '.'
 	else:
-	    return str('{:.2%}'.format(self.qual/100.0))
+	    return str('{:.2f}'.format(self.qual))
 
 class Insertion(object):
     # bases are represented just as DNA strings
@@ -495,8 +495,7 @@ def proportion_overlap(block_start, block_end, read):
         return float(overlap_size) / block_size
 
 def write_variant(file, variant, sample, args):
-    """
-    global repeats
+    """global repeats
     global line
     global kept_variants_file
     if (sample, variant.pos) in repeats.keys():
@@ -516,8 +515,8 @@ def write_variant(file, variant, sample, args):
 	kept_variants_file = open(args.out, "w")
     else:
 	# repeats[(sample, variant.pos, variant.ref(), variant.alt())] = line
-	repeats[(sample, variant.pos)] = line
-    """
+	repeats[(sample, variant.pos)] = line"""
+
     file.write('\t'.join([variant.chr[3:], str(variant.position()), \
 '.', variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
 
@@ -526,6 +525,7 @@ def nts(s):
     if s is None:
 	return ''
     return str(s)
+
 
 def process_blocks(args, kept_variants_file, bam, sample, block_coords):
     coverage_info = []
@@ -536,10 +536,12 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
         logging.info("processing block chr: {}, start: {}, end: {}".format(chr, start, end))
         # process all the reads in one block
         block_vars = {}
+	primer_vars = {}
         num_pairs = 0
-        # use 0 based coordinates to lookup reads from bam file
-        read_pairs = lookup_reads(args.overlap, bam, chr, start - 1, end - 1)
-        for read_name, reads in read_pairs.items():
+        num_primer_pairs = 0
+	# use 0 based coordinates to lookup reads from bam file
+        read_pairs = lookup_reads(args.overlap, bam, chr, start - 21, end - 1)
+	for read_name, reads in read_pairs.items():
             if len(reads) == 1:
                 logging.warning("read {} with no pair".format(read_name))
             elif len(reads) == 2:
@@ -552,6 +554,8 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                 #exit()
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
+		# print len(read1_bases), read1_bases
+		# print '\n'
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
@@ -568,11 +572,37 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 				block_vars[var] = tuple(map(sum, zip(block_vars[var], (1, var.qual))))
                         else:
                             block_vars[var] = (1, var.qual)
+		    # or if it's a variant within the primer region
+		    elif var.pos < start and var.pos >= start - 20:
+			if var in primer_vars:
+			    if var.qual == '-':
+				primer_vars[var] = (primer_vars[var][0] + 1, var.qual)
+			    else:
+				primer_vars[var] = tuple(map(sum, zip(primer_vars[var], (1, var.qual))))
+			else:
+			    primer_vars[var] = (1, var.qual)
             else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
-        for var in block_vars:
+        for var in primer_vars:
+	    num_primer_vars = primer_vars[var][0]
+	    proportion = float(num_primer_vars) / num_pairs
+	    proportion_str = "{:.2f}".format(proportion)
+	    var.info.append("Sample=Primer")
+	    var.info.append("NV=" + str(num_primer_vars))
+	    var.info.append("NP=" + str(num_pairs))
+	    var.info.append("PCT=" + str('{:.2%}'.format(proportion)))
+	    if num_primer_vars < args.absthresh:
+		var.filter = ''.join([nts(var.filter), ";at"])
+	    if proportion < args.proportionthresh:
+		var.filter = ''.join([nts(var.filter), ";pt"])
+	    if primer_vars[var][1] == '-':
+		var.qual = '-'
+	    else:
+		var.qual = (primer_vars[var][1])/float(num_primer_vars)
+	    write_variant(kept_variants_file, var, sample, args)
+	for var in block_vars:
             num_vars = block_vars[var][0]
             proportion = float(num_vars) / num_pairs
             proportion_str = "{:.2f}".format(proportion)
