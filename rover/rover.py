@@ -17,6 +17,7 @@ from itertools import (izip, chain, repeat)
 default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
+default_primerhybrid_threshold = 1
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -50,6 +51,8 @@ def parse_args():
              'Defaults to {}.'.format(default_absolute_threshold))
     parser.add_argument('--qualthresh', metavar='N', type=int,
         help='Minimum base quality score (phred).')
+    parser.add_argument('--primerthresh', metavar='N', type=int, default=default_primerhybrid_threshold,
+	help='Maximum number of bases affected by SNVs or indels in the primer region of a block.')
     parser.add_argument('--coverdir',
         required=False,
         help='Directory to write coverage files, defaults to current working directory.')
@@ -526,6 +529,11 @@ def nts(s):
 	return ''
     return str(s)
 
+def printable_base(num):
+    if num == 1:
+	return "base"
+    else:
+	return "bases"
 
 def process_blocks(args, kept_variants_file, bam, sample, block_coords):
     coverage_info = []
@@ -597,7 +605,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 	    var.info.append("NV=" + str(num_primer_vars))
 	    var.info.append("NP=" + str(num_pairs))
 	    var.info.append("PCT=" + str("{:.2%}".format(proportion)))
-    	    if (num_primer_vars < args.absthresh) and (proportion < args.proportionthresh):
+    	    if (num_primer_vars > args.absthresh) and (proportion > args.proportionthresh):
 	    	if isinstance(var, Insertion):
 		    p_insertions += len(var.inserted_bases)
 	    	elif isinstance(var, Deletion):
@@ -612,13 +620,18 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 		var.qual = '-'
 	    else:
 		var.qual = (primer_vars[var][1])/float(num_primer_vars)
-	    write_variant(kept_variants_file, var, sample, args)
+	    # write_variant(kept_variants_file, var, sample, args)
 
 	if p_snvs > 0 or p_insertions > 0 or p_deletions > 0:
-	    print "Variants were detected in the primer region of the block starting at position " + str(start) + " as follows:"
-	    print "SNVs: " + str(p_snvs) + " modified bases in total"
-	    print "Insertions: " + str(p_insertions) + " inserted bases in total"
-	    print "Deletions: " + str(p_deletions) + " deleted bases in total" + '\n'
+	    print "Variant(s) were detected in the primer region of sample " + str(sample) + " in the block starting at \
+position " + str(start) + " as follows:"
+	    print "SNVs: " + str(p_snvs) + " modified " + printable_base(p_snvs) + " in total"
+	    print "Insertions: " + str(p_insertions) + " inserted " + printable_base(p_insertions) + " in total"
+	    print "Deletions: " + str(p_deletions) + " deleted " + printable_base(p_deletions) + " in total" + '\n'
+	
+	expected_primer = 0
+	if (p_snvs + p_insertions + p_deletions) < args.primerthresh:
+	    expected_primer = 1
 
 	for var in block_vars:
             num_vars = block_vars[var][0]
@@ -636,6 +649,8 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 		var.qual = '-'
 	    else:
 		var.qual = (block_vars[var][1])/float(num_vars)
+	    if expected_primer == 0:
+		var.info.append("HP=T")
 	    write_variant(kept_variants_file, var, sample, args)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
@@ -664,8 +679,7 @@ def write_metadata(args, file):
 hard clipping on the aligned sequence prior to indel event\">" + '\n')
     file.write("##INFO=<ID=SC,Number=1,Type=String,Description=\"Context base cannot be determined due to \
 soft clipping on the aligned sequence prior to indel event\">" + '\n')
-    # file.write("##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples with Data\">" + '\n')
-    # file.write("##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">" + '\n')
+    file.write("##INFO=<ID=HP,Number=1,Type=String,Description=\"Questionable reliability of variant call due to excessive variation from the reference in the primer region of the block\">" + '\n')
     if args.qualthresh: 
         file.write("##FILTER=<ID=qlt,Description=\"Variant has phred quality score below " + str(args.qualthresh) + "\">" + '\n')
     if args.absthresh:
