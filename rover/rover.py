@@ -17,7 +17,6 @@ from itertools import (izip, chain, repeat)
 default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
-default_primerhybrid_threshold = 0
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -62,6 +61,11 @@ def parse_args():
 def get_block_coords(primers_file):
     with open(primers_file) as primers:
         return list(csv.reader(primers, delimiter='\t'))
+
+
+def get_primer_coords(primers_coords_file):
+    with open(primers_coords_file) as primer_coords:
+	return list(csv.reader(primer_coords, delimiter='\t'))
 
 
 def lookup_reads(min_overlap, bam, chr, start_col, end_col):
@@ -507,16 +511,46 @@ def nts(s):
 	return ''
     return str(s)
 
-def process_blocks(args, kept_variants_file, bam, sample, block_coords):
+
+def check_primer_pair(primer_coords, block_info, read1_bases, read2_bases, read1_pos, read2_pos):
+    block_primer1 = []
+    block_primer2 = []
+    primer1_end = int(block_info[1]) - read1_pos
+    for primer1_base in read1_bases[primer1_end - (len(primer_coords[block_info[3]])):primer1_end]:
+	block_primer1.append(primer1_base.base)
+    primer1_str = "".join([b for b in block_primer1])
+    primer2_end = int(block_info[1]) - read2_pos
+    for primer2_base in read2_bases[primer2_end - (len(primer_coords[block_info[3]])):primer2_end]:
+	block_primer2.append(primer2_base.base)
+    primer2_str = "".join([b for b in block_primer2])
+    if primer1_str == primer2_str:
+	return True
+    else:
+	return False
+
+def check_primers(primer_coords, block_info, bases, pos):
+    block_primer = []
+    primer_end = int(block_info[1]) - pos
+    for primer_base in bases[primer_end - (len(primer_coords[block_info[3]])):primer_end]:
+	block_primer.append(primer_base.base)
+    primer_str = "".join([b for b in block_primer])
+    if primer_coords[block_info[3]] != primer_str:
+	return 1
+    else:
+	return 0
+
+def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_coords):
     coverage_info = []
     for block_info in block_coords:
         chr, start, end = block_info[:3]
 	start = int(start)
         end = int(end)
-        logging.info("processing block chr: {}, start: {}, end: {}".format(chr, start, end))
+	primer_var = False
+	logging.info("processing block chr: {}, start: {}, end: {}".format(chr, start, end))
         # process all the reads in one block
         block_vars = {}
         num_pairs = 0
+	num_primer_vars = 0
 	# use 0 based coordinates to lookup reads from bam file
         read_pairs = lookup_reads(args.overlap, bam, chr, start - 21, end - 1)
 	for read_name, reads in read_pairs.items():
@@ -532,6 +566,14 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                 #exit()
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
+		
+		if args.primercheck:
+		    check_primer_pair(primer_coords, block_info, read1_bases, read2_bases, read1.pos + 1, read2.pos + 1)
+		    read1_check = check_primers(primer_coords, block_info, read1_bases, read1.pos + 1)
+		    read2_check = check_primers(primer_coords, block_info, read2_bases, read2.pos + 1)
+		    if read1_check > 0 or read2_check > 0:
+			num_primer_vars += 1
+
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
@@ -552,6 +594,9 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
+
+	print block_info[3], block_info[1]
+	print "{:.2%}".format(float(num_primer_vars)/(num_pairs))
 
 	for var in block_vars:
             num_vars = block_vars[var][0]
@@ -614,6 +659,12 @@ output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER"
 
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
+    primer_coords = {}
+    # a dictionary of primers and their sequences
+    if args.primercheck:
+	primer_info = get_primer_coords(args.primercheck)
+	for primer in primer_info:
+	    primer_coords[primer[0]] = primer[1]
     # with open(args.out, "w") as kept_variants_file, \
     #      open(args.out + '.binned', "w") as binned_variants_file:
     with open(args.out, "w") as kept_variants_file:
@@ -631,7 +682,7 @@ def process_bams(args):
                 exit('Cannot deduce sample name from bam filename {}'.format(bam_filename))
             with pysam.Samfile(bam_filename, "rb") as bam:
                 logging.info("processing bam file {}".format(bam_filename))
-                process_blocks(args, kept_variants_file, bam, sample, block_coords)
+                process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_coords)
 
 def main():
     args = parse_args()
