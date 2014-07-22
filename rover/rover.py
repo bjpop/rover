@@ -17,7 +17,7 @@ from itertools import (izip, chain, repeat)
 default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
-default_primerhybrid_threshold = 1
+default_primerhybrid_threshold = 0
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -51,8 +51,8 @@ def parse_args():
              'Defaults to {}.'.format(default_absolute_threshold))
     parser.add_argument('--qualthresh', metavar='N', type=int,
         help='Minimum base quality score (phred).')
-    parser.add_argument('--primerthresh', metavar='N', type=int, default=default_primerhybrid_threshold,
-	help='Maximum number of bases affected by SNVs or indels in the primer region of a block.')
+    parser.add_argument('--primercheck', metavar='FILE', type=str, 
+	help='Expected base sequences and locations of primers as determined by a primer generating program.')
     parser.add_argument('--coverdir',
         required=False,
         help='Directory to write coverage files, defaults to current working directory.')
@@ -498,28 +498,6 @@ def proportion_overlap(block_start, block_end, read):
         return float(overlap_size) / block_size
 
 def write_variant(file, variant):
-    """global repeats
-    global line
-    global kept_variants_file
-    if (sample, variant.pos) in repeats.keys():
-	print "repeated " + sample + '' + str(variant.pos)
-	kept_variants_file.close()
-	kept_variants_file = open(args.out, "r+")
-	line_offset = []
-	offset = 0
-	for row in kept_variants_file:
-	    line_offset.append(offset)
-	    offset += len(row)
-	kept_variants_file.seek(0)
-	# file.seek(line_offset[repeats[(sample, variant.pos, variant.ref(), variant.alt())]])
-	kept_variants_file.seek(line_offset[repeats[(sample, variant.pos)]] - 1)
-	kept_variants_file.write("Repeat would go here." + '\n')
-	kept_variants_file.close()
-	kept_variants_file = open(args.out, "w")
-    else:
-	# repeats[(sample, variant.pos, variant.ref(), variant.alt())] = line
-	repeats[(sample, variant.pos)] = line"""
-
     file.write('\t'.join([variant.chr[3:], str(variant.position()), \
 '.', variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
 
@@ -528,13 +506,6 @@ def nts(s):
     if s is None:
 	return ''
     return str(s)
-
-def printable_base(num):
-    # Correct plurality
-    if num == 1:
-	return "base"
-    else:
-	return "bases"
 
 def process_blocks(args, kept_variants_file, bam, sample, block_coords):
     coverage_info = []
@@ -545,9 +516,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
         logging.info("processing block chr: {}, start: {}, end: {}".format(chr, start, end))
         # process all the reads in one block
         block_vars = {}
-	primer_vars = {}
         num_pairs = 0
-        num_primer_pairs = 0
 	# use 0 based coordinates to lookup reads from bam file
         read_pairs = lookup_reads(args.overlap, bam, chr, start - 21, end - 1)
 	for read_name, reads in read_pairs.items():
@@ -563,8 +532,6 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
                 #exit()
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
-		# print len(read1_bases), read1_bases
-		# print '\n'
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
@@ -581,60 +548,10 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords):
 				block_vars[var] = tuple(map(sum, zip(block_vars[var], (1, var.qual))))
                         else:
                             block_vars[var] = (1, var.qual)
-		    # or if it's a variant within the primer region
-		    elif var.pos < start and var.pos >= start - 20:
-			if var in primer_vars:
-			    if var.qual == '-':
-				primer_vars[var] = (primer_vars[var][0] + 1, var.qual)
-			    else:
-				primer_vars[var] = tuple(map(sum, zip(primer_vars[var], (1, var.qual))))
-			else:
-			    primer_vars[var] = (1, var.qual)
 	    else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
-        
-	# Detecting variants in the primer regions
-	p_snvs = 0
-	p_insertions = 0
-	p_deletions = 0
-	for var in primer_vars:
-	    num_primer_vars = primer_vars[var][0]
-	    proportion = float(num_primer_vars) / num_pairs
-	    var.info.append("Sample=" + str(block_info[3]))
-	    var.info.append("NV=" + str(num_primer_vars))
-	    var.info.append("NP=" + str(num_pairs))
-	    var.info.append("PCT=" + str("{:.2%}".format(proportion)))
-    	    if (num_primer_vars > args.absthresh) and (proportion > args.proportionthresh):
-	    	if isinstance(var, Insertion):
-		    p_insertions += len(var.inserted_bases)
-	    	elif isinstance(var, Deletion):
-		    p_deletions += len(var.deleted_bases)
-	    	elif isinstance(var, SNV):
-		    p_snvs += 1
-		write_variant(kept_variants_file, var)
-	    if num_primer_vars < args.absthresh:
-		var.filter = ''.join([nts(var.filter), ";at"])
-	    if proportion < args.proportionthresh:
-		var.filter = ''.join([nts(var.filter), ";pt"])
-	    if primer_vars[var][1] == '-':
-		var.qual = '-'
-	    else:
-		var.qual = (primer_vars[var][1])/float(num_primer_vars)
-	    # write_variant(kept_variants_file, var, sample, args)
-
-	if p_snvs > 0 or p_insertions > 0 or p_deletions > 0:
-	    print "Variant(s) were detected in the primer region of sample " + str(sample) + " in the block starting at \
-position " + str(start) + " as follows:"
-	    print "SNVs: " + str(p_snvs) + " modified " + printable_base(p_snvs)
-	    print "Insertions: " + str(p_insertions) + " inserted " + printable_base(p_insertions)
-	    print "Deletions: " + str(p_deletions) + " deleted " + printable_base(p_deletions)
-	    print "Variant calls in this block have been marked with \"HP=T\" in the INFO column" + '\n'	
-
-	expected_primer = 0
-	if (p_snvs + p_insertions + p_deletions) < args.primerthresh:
-	    expected_primer = 1
 
 	for var in block_vars:
             num_vars = block_vars[var][0]
@@ -652,8 +569,6 @@ position " + str(start) + " as follows:"
 		var.qual = '-'
 	    else:
 		var.qual = (block_vars[var][1])/float(num_vars)
-	    if expected_primer == 0:
-		var.info.append("HP=T")
 	    write_variant(kept_variants_file, var)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
@@ -682,7 +597,7 @@ def write_metadata(args, file):
 hard clipping on the aligned sequence prior to indel event\">" + '\n')
     file.write("##INFO=<ID=SC,Number=1,Type=String,Description=\"Context base cannot be determined due to \
 soft clipping on the aligned sequence prior to indel event\">" + '\n')
-    file.write("##INFO=<ID=HP,Number=1,Type=String,Description=\"Questionable reliability of variant call due to excessive variation from the reference in the primer region of the block\">" + '\n')
+    file.write("##INFO=<ID=IP,Number=1,Type=String,Description=\"Misaligned or incorrect base sequence in primer region\">" + '\n')
     if args.qualthresh: 
         file.write("##FILTER=<ID=qlt,Description=\"Variant has phred quality score below " + str(args.qualthresh) + "\">" + '\n')
     if args.absthresh:
@@ -692,10 +607,10 @@ soft clipping on the aligned sequence prior to indel event\">" + '\n')
 		+ "% of read pairs for the given region\">" + '\n')
 
 # Extra formatting applied to column headings so that everything lines up
-output_header = '\t'.join(["#CHROM", "POS", '', "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
+# output_header = '\t'.join(["#CHROM", "POS", '', "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
 # Proper tab separated column headings
-# output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
+output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"])
 
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
