@@ -323,10 +323,7 @@ class SNV(object):
     def position(self):
 	return self.pos
     def quality(self):
-	if self.qual == '-':
-	    return '.'
-	else:
-	    return str('{:.2f}'.format(self.qual))
+	return '.'
 
 class Insertion(object):
     # bases are represented just as DNA strings
