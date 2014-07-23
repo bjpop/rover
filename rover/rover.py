@@ -17,6 +17,7 @@ from itertools import (izip, chain, repeat)
 default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
+default_primer_base_threshold = 1
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -52,6 +53,10 @@ def parse_args():
         help='Minimum base quality score (phred).')
     parser.add_argument('--primercheck', metavar='FILE', type=str, 
 	help='Expected base sequences and locations of primers as determined by a primer generating program.')
+    parser.add_argument('--primerthresh', metavar='N', type=int,
+	help='Maximum allowed variance in base sequence of primers.')
+    parser.add_argument('--primerlocationthresh', metavar='N', type=int, 
+	help='Maximum allowed variance in location of primers.')
     parser.add_argument('--coverdir',
         required=False,
         help='Directory to write coverage files, defaults to current working directory.')
@@ -511,35 +516,63 @@ def nts(s):
 	return ''
     return str(s)
 
+def possible_primers(primer_sequence, block_info, bases, pos, locationthresh):
+    # generates possible primers maximum of locationthresh away from expected position
+    primer_end = int(block_info[1]) - pos
+    primer_length = len(primer_sequence[block_info[3]])
+    primers = []
 
-def check_primer_pair(primer_sequence, block_info, read1_bases, read2_bases, read1_pos, read2_pos):
+    for i in range((-1 * locationthresh), (locationthresh + 1)):
+        primer_bases = []
+        for primer_base in bases[(primer_end - primer_length + i):primer_end + i]:
+	    primer_bases.append(primer_base.base)    
+	primers.append("".join([b for b in primer_bases]))
+    return primers
+
+def primer_diff(primer1, primer2):
+    # compares two primers (in string representation)
+    diff = 0
+    if len(primer1) == 0 or len(primer2) == 0:
+	return 20
+    for i in range(len(primer1)):
+	if primer1[i] != primer2[i]:
+	    diff += 1
+    return diff
+
+def check_primer_pair(primer_sequence, block_info, read1_bases, read2_bases, read1_pos, read2_pos, basethresh, locationthresh):
+    # checks if two primers sequences are similar to each other, returns 1 if they differ by basethresh or more
     block_primer1 = []
-    block_primer2 = []
+    primer_length = len(primer_sequence[block_info[3]])
     primer1_end = int(block_info[1]) - read1_pos
-    for primer1_base in read1_bases[primer1_end - (len(primer_sequence[block_info[3]])):primer1_end]:
+    
+    primers = possible_primers(primer_sequence, block_info, read2_bases, read2_pos, locationthresh)
+
+    for primer1_base in read1_bases[(primer1_end - primer_length):primer1_end]:
 	block_primer1.append(primer1_base.base)
     primer1_str = "".join([b for b in block_primer1])
-    primer2_end = int(block_info[1]) - read2_pos
-    for primer2_base in read2_bases[primer2_end - (len(primer_sequence[block_info[3]])):primer2_end]:
-	block_primer2.append(primer2_base.base)
-    primer2_str = "".join([b for b in block_primer2])
-    if primer1_str != primer2_str:
-	# print primer1_str, primer2_str 
-	return 1
-    else:
-	return 0
+ 
+    for possible_primer in primers:
+	if primer_diff(primer1_str, possible_primer) < basethresh:
+	    return 0
+    return 1
 
-def check_primers(primer_sequence, block_info, bases, pos):
-    block_primer = []
-    primer_end = int(block_info[1]) - pos
-    for primer_base in bases[primer_end - (len(primer_sequence[block_info[3]])):primer_end]:
-	block_primer.append(primer_base.base)
-    primer_str = "".join([b for b in block_primer])
-    if primer_sequence[block_info[3]] != primer_str:
-	# print primer_sequence[block_info[3]], primer_str
-	return 1
+def check_primers(primer_sequence, block_info, bases, pos, basethresh, locationthresh):
+    # checks if the primer is similar to what we expect from what we expect, can differ in base sequence by basethresh and location 
+    # by location thresh
+    ref_primer = primer_sequence[block_info[3]]    
+    primers = possible_primers(primer_sequence, block_info, bases, pos, locationthresh)
+ 
+    for possible_primer in primers:
+	if primer_diff(ref_primer, possible_primer) < basethresh:
+	    return 0
+    return 1
+
+def printable_base(bases):
+    # correct plurality
+    if bases == 1:
+	return "base"
     else:
-	return 0
+	return "bases"
 
 def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence):
     coverage_info = []
@@ -571,10 +604,13 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
 		
 		if args.primercheck:
-		    if check_primer_pair(primer_sequence, block_info, read1_bases, read2_bases, read1.pos + 1, read2.pos + 1) > 0:
+		    if check_primer_pair(primer_sequence, block_info, read1_bases, read2_bases, read1.pos + 1, \
+				read2.pos + 1, args.primerthresh, args.primerlocationthresh) > 0:
 			num_primer_diff += 1
-		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1)
-		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1)
+		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, \
+				args.primerlocationthresh)
+		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, \
+				args.primerlocationthresh)
 		    if read1_check > 0 or read2_check > 0:
 			num_primer_vars += 1
 
@@ -599,9 +635,13 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
 
-	print block_info[3], block_info[1]
-	print "Percentage of read pairs with non-exact primers: {:.2%}".format(float(num_primer_vars)/(num_pairs))
-	print "Percentage of read pairs with non-identical primers: {:.2%}".format(float(num_primer_diff)/(num_pairs)) + '\n'	
+	print block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]
+	print "Percentage of read pairs with primers differing by more than " + str(args.primerthresh) + \
+		" " + printable_base(args.primerthresh) + " from expected sequence or more than " + str(args.primerlocationthresh) + " away \
+from expected location: {:.2%}".format(float(num_primer_vars)/(num_pairs))
+	print "Percentage of read pairs with primers differing by more than " + str(args.primerthresh) + \
+		" " + printable_base(args.primerthresh) + " from each other or more than " + str(args.primerlocationthresh) + " away \
+from expected location: {:.2%}".format(float(num_primer_diff)/(num_pairs)) + '\n'	
 
 	for var in block_vars:
             num_vars = block_vars[var][0]
