@@ -17,7 +17,7 @@ from itertools import (izip, chain, repeat)
 default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
-default_primer_base_threshold = 1
+# default_primer_base_threshold = 1
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -369,10 +369,7 @@ class Insertion(object):
     def position(self):
 	return self.pos - 1
     def quality(self):
-	if self.qual == '-':
-	    return '.'
-	else:
-	    return self.qual
+	return '.'
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -415,10 +412,7 @@ class Deletion(object):
     def position(self):
 	return self.pos - 1
     def quality(self):
-	if self.qual == '-':
-	    return '.'
-	else:
-	    return self.qual
+	return '.'
 
 class MD_match(object):
     def __init__(self, size):
@@ -624,27 +618,25 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                     # only consider variants within the bounds of the block
                     if var.pos >= start and var.pos <= end:
                         if var in block_vars:
-                            if var.qual == '-':
-				block_vars[var] = (block_vars[var][0] + 1, var.qual)
-			    else:
-				block_vars[var] = tuple(map(sum, zip(block_vars[var], (1, var.qual))))
-                        else:
-                            block_vars[var] = (1, var.qual)
+                            block_vars[var] += 1
+			else:
+			    block_vars[var] = 1
 	    else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
-
-	print block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]
-	print "Percentage of read pairs with primers differing by more than " + str(args.primerthresh) + \
+	
+	if args.primercheck:
+	    print block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]
+	    print "Percentage of read pairs with primers differing by more than " + str(args.primerthresh) + \
 		" " + printable_base(args.primerthresh) + " from expected sequence or more than " + str(args.primerlocationthresh) + " away \
 from expected location: {:.2%}".format(float(num_primer_vars)/(num_pairs))
-	print "Percentage of read pairs with primers differing by more than " + str(args.primerthresh) + \
+	    print "Percentage of read pairs with primers differing by more than " + str(args.primerthresh) + \
 		" " + printable_base(args.primerthresh) + " from each other or more than " + str(args.primerlocationthresh) + " away \
 from expected location: {:.2%}".format(float(num_primer_diff)/(num_pairs)) + '\n'	
 
 	for var in block_vars:
-            num_vars = block_vars[var][0]
+            num_vars = block_vars[var]
             proportion = float(num_vars) / num_pairs
             proportion_str = "{:.2f}".format(proportion)
   	    var.info.append("Sample=" + str(sample))
@@ -655,10 +647,6 @@ from expected location: {:.2%}".format(float(num_primer_diff)/(num_pairs)) + '\n
 		var.filter = ''.join([nts(var.filter), ";at"])
 	    if proportion < args.proportionthresh:
 		var.filter = ''.join([nts(var.filter), ";pt"])
-	    if block_vars[var][1] == '-':
-		var.qual = '-'
-	    else:
-		var.qual = (block_vars[var][1])/float(num_vars)
 	    write_variant(kept_variants_file, var)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
