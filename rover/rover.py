@@ -12,6 +12,7 @@ from operator import itemgetter
 import csv
 from version import rover_version
 from itertools import (izip, chain, repeat)
+from Bio import pairwise2
 
 # proportion of block which must be overlapped by read 
 default_minimum_read_overlap_block = 0.9
@@ -296,7 +297,7 @@ class SNV(object):
     def __init__(self, chr, pos, ref_base, seq_base, qual, filter):
         self.chr = chr
         self.pos = pos
-        self.ref_base = ref_base
+	self.ref_base = ref_base
         self.seq_base = seq_base
 	self.qual = qual
 	self.filter = filter
@@ -522,79 +523,78 @@ def reverse_complement(sequence):
     return rc[::-1]
 
 
-def possible_primers(primer_sequence, block_info, bases, pos, locationthresh, direction):
+def possible_primer(primer_sequence, block_info, bases, pos, direction):
     # generates possible primers maximum of locationthresh away from expected position
     forward_primer_end = int(block_info[1]) - pos
     reverse_primer_start = int(block_info[2]) - pos + 1
-    forward_primer_length = len(primer_sequence[block_info[3]])
-    reverse_primer_length = len(primer_sequence[block_info[4]])
-    primers = []
+    #forward_primer_length = len(primer_sequence[block_info[3]])
+    #reverse_primer_length = len(primer_sequence[block_info[4]])
 
     if direction == -1:
-        for i in range((-1 * locationthresh), (locationthresh + 1)):
-            primer_bases = []
-            for primer_base in bases[(forward_primer_end - forward_primer_length + i):(forward_primer_end + i)]:
-	        primer_bases.append(primer_base.base)    
-	    primers.append("".join([b for b in primer_bases]))
-	#if block_info[3] == "PALB2_X3_F2":
-	   # print primers[3]
+	primer_bases = []
+	for primer_base in bases[:forward_primer_end]:
+	    primer_bases.append(primer_base.base)
+	return "".join([b for b in primer_bases])
+
+    if direction == 1:
+	primer_bases = []
+	for primer_base in bases[reverse_primer_start:]:
+	    primer_bases.append(primer_base.base)
+	return "".join([b for b in primer_bases])
+
+#    if direction == -1:
+ #       for i in range((-1 * locationthresh), (locationthresh + 1)):
+  #          primer_bases = []
+   #         for primer_base in bases[(forward_primer_end - forward_primer_length + i):(forward_primer_end + i)]:
+#	        primer_bases.append(primer_base.base)    
+#	    primers.append("".join([b for b in primer_bases]))
+	#if block_info[3] == "XRCC2_X2_F1":
+	    #print bases
+	   #  print primers
 	    #exit()
-        return primers
-    elif direction == 1:
-	for i in range((-1 * locationthresh), (locationthresh + 1)):
-	    primer_bases = []
-	    for primer_base in bases[(reverse_primer_start + i):(reverse_primer_start + reverse_primer_length + i)]:
-		primer_bases.append(primer_base.base)
-	    primers.append("".join([b for b in primer_bases]))
-	#if block_info[4] == "PALB2_X3_R2":
-	  #  print primers[3]
+ #       return primers
+  #  elif direction == 1:
+#	for i in range((-1 * locationthresh), (locationthresh + 1)):
+#	    primer_bases = []
+#	    for primer_base in bases[(reverse_primer_start + i):(reverse_primer_start + reverse_primer_length + i)]:
+#		primer_bases.append(primer_base.base)
+#	    primers.append("".join([b for b in primer_bases]))
+	#if block_info[4] == "XRCC2_X2_R1":
+	    #print bases
+	 #   print primers
 	    #exit()
-	return primers
+#	return primers
 
 def primer_diff(primer1, primer2):
     # compares two primers (in string representation)
-    diff = 0
-    if len(primer1) != len(primer2):
-	diff += (abs(len(primer1) - len(primer2)))
-    for i in range(min(len(primer1), len(primer2))):
-	if primer1[i] != primer2[i]:
-	    diff += 1
-    return diff
+    for alignment in pairwise2.align.globalxx(primer1, primer2):
+	if alignment != []:
+	    return len(primer1) - alignment[2]
+    return len(primer1)
 
-#def check_primer_pair(primer_sequence, block_info, read1_bases, read2_bases, read1_pos, read2_pos, basethresh, locationthresh):
-    # checks if two primers sequences are similar to each other, returns 1 if they differ by basethresh or more
- #   block_primer1 = []
-  #  primer_length = len(primer_sequence[block_info[3]])
-   # primer1_end = int(block_info[1]) - read1_pos
-    
-    #primers = possible_primers(primer_sequence, block_info, read2_bases, read2_pos, locationthresh)
-
-#    for primer1_base in read1_bases[(primer1_end - primer_length):primer1_end]:
-#	block_primer1.append(primer1_base.base)
- #   primer1_str = "".join([b for b in block_primer1])
- #
-  #  for possible_primer in primers:
-#	if primer_diff(primer1_str, possible_primer) < basethresh:
-#	    return 0
- #   return 1
 
 def check_primers(primer_sequence, block_info, bases, pos, basethresh, locationthresh):
     # checks if the primer is similar to what we expect from what we expect, can differ in base sequence by basethresh and location 
     # by location thresh
     ref_primer_forward = primer_sequence[block_info[3]]
     ref_primer_reverse = primer_sequence[block_info[4]]
-    forward_primers = possible_primers(primer_sequence, block_info, bases, pos, locationthresh, -1)
-    reverse_primers = possible_primers(primer_sequence, block_info, bases, pos, locationthresh, 1)
+    forward_primer_region = possible_primer(primer_sequence, block_info, bases, pos, -1)
+    reverse_primer_region = possible_primer(primer_sequence, block_info, bases, pos, 1)
     # print reverse_primers
     forward_var = 1
     reverse_var = 1
-    for possible_primer in forward_primers:
-	if primer_diff(ref_primer_forward, possible_primer) <= basethresh:
-	    forward_var = 0
-    for possible_primer in reverse_primers:
-	# print len(ref_primer_reverse), len(possible_primer)
-	if primer_diff(ref_primer_reverse, reverse_complement(possible_primer)) <= basethresh:
-	    reverse_var = 0
+    
+    forward_score = primer_diff(ref_primer_forward, forward_primer_region)
+    reverse_score = primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region))
+
+    return max(forward_score, reverse_score)
+
+    if primer_diff(ref_primer_forward, forward_primer_region) <= basethresh:
+	forward_var = 0
+    if primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region)) <= basethresh:
+	reverse_var = 0
+    #if block_info[3] == "PALB2_X3_F2":
+#	print forward_var, reverse_var
     if forward_var == 0 and reverse_var == 0:
 	return 0
     else:
@@ -618,6 +618,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         block_vars = {}
         num_pairs = 0
 	num_primer_vars = 0
+	scores = {}
 	# use 0 based coordinates to lookup reads from bam file
         read_pairs = lookup_reads(args.overlap, bam, chr, start - 21, end - 1)
 	for read_name, reads in read_pairs.items():
@@ -634,17 +635,17 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
 		
-		if args.primercheck:
+		#if args.primercheck:
 		    #if check_primer_pair(primer_sequence, block_info, read1_bases, read2_bases, read1.pos + 1, \
 		#		read2.pos + 1, args.primerthresh, args.primerlocationthresh) > 0:
 		#	num_primer_diff += 1
-		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, \
-				args.primerlocationthresh)
-		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, \
-				args.primerlocationthresh)
+		 #   read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, \
+		#		args.primerlocationthresh)
+		 #   read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, \
+		#		args.primerlocationthresh)
 		    # print read1_check, read2_check
-		    if read1_check > 0 or read2_check > 0:
-			num_primer_vars += 1
+		 #   if read1_check > 0 or read2_check > 0:
+		#	num_primer_vars += 1
 
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
@@ -652,24 +653,46 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                 set_variants2 = set(variants2)
                 # find the variants each read in the pair share in common
                 same_variants = set_variants1.intersection(set_variants2)
-                for var in same_variants:
+		for var in same_variants:
                     # only consider variants within the bounds of the block
                     if var.pos >= start and var.pos <= end:
                         if var in block_vars:
                             block_vars[var] += 1
 			else:
 			    block_vars[var] = 1
+		if args.primercheck:
+		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, \
+				args.primerlocationthresh)
+		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, \
+				args.primerlocationthresh)
+		    if read1_check in scores:
+			scores[read1_check] += 1
+		    else:
+			scores[read1_check] = 1
+		    if read2_check in scores:
+			scores[read2_check] += 1
+		    else:
+			scores[read2_check] = 1
 	    else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
 	
 	if args.primercheck:
-	    print block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]
+	    print '\n' + block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]	
 	    print block_info[4], int(block_info[2]) + 1, reverse_complement(primer_sequence[block_info[4]])
-	    print "Percentage of read pairs with primers differing by " + str(args.primerthresh) + \
-		" " + printable_base(args.primerthresh) + " or less from expected sequence " + str(args.primerlocationthresh) \
-+ " or less away from expected location: {:.2%}".format((float(num_pairs) - float(num_primer_vars))/(num_pairs)) + '\n'
+	    total = sum(scores.values())
+	    for mismatch in sorted(scores):
+		# print mismatch, scores[mismatch]
+		print "Percentage of primers " + str(mismatch) + " mismatched bases away from expected sequence: \
+{:.2%}".format(scores[mismatch]/float(total))
+
+	#if args.primercheck:
+	 #   print block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]
+	  #  print block_info[4], int(block_info[2]) + 1, reverse_complement(primer_sequence[block_info[4]])
+	   # print "Percentage of read pairs with primers differing by " + str(args.primerthresh) + \
+	#	" " + printable_base(args.primerthresh) + " or less from expected sequence " + str(args.primerlocationthresh) \
+#+ " or less away from expected location: {:.2%}".format((float(num_pairs) - float(num_primer_vars))/(num_pairs)) + '\n'
 	    #print "Percentage of read pairs with primers differing by more than " + str(args.primerthresh) + \
 	#	" " + printable_base(args.primerthresh) + " from each other or more than " + str(args.primerlocationthresh) + " away \
 #from expected location: {:.2%}".format(float(num_primer_diff)/(num_pairs)) + '\n'	
