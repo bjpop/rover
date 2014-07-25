@@ -587,18 +587,18 @@ def check_primers(primer_sequence, block_info, bases, pos, basethresh, locationt
     forward_score = primer_diff(ref_primer_forward, forward_primer_region)
     reverse_score = primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region))
 
-    return max(forward_score, reverse_score)
+    return [forward_score, reverse_score]
 
-    if primer_diff(ref_primer_forward, forward_primer_region) <= basethresh:
-	forward_var = 0
-    if primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region)) <= basethresh:
-	reverse_var = 0
+   # if primer_diff(ref_primer_forward, forward_primer_region) <= basethresh:
+#	forward_var = 0
+ #   if primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region)) <= basethresh:
+#	reverse_var = 0
     #if block_info[3] == "PALB2_X3_F2":
 #	print forward_var, reverse_var
-    if forward_var == 0 and reverse_var == 0:
-	return 0
-    else:
-	return 1
+ #   if forward_var == 0 and reverse_var == 0:
+#	return 0
+ #   else:
+#	return 1
 
 def printable_base(bases):
     # correct plurality
@@ -665,14 +665,16 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 				args.primerlocationthresh)
 		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, \
 				args.primerlocationthresh)
-		    if read1_check in scores:
-			scores[read1_check] += 1
+		    forward_score = max(read1_check[0], read2_check[0])
+		    reverse_score = max(read1_check[1], read2_check[1])
+		    if forward_score in scores:
+			scores[forward_score] += 1
 		    else:
-			scores[read1_check] = 1
-		    if read2_check in scores:
-			scores[read2_check] += 1
+			scores[forward_score] = 1
+		    if reverse_score in scores:
+			scores[reverse_score] += 1
 		    else:
-			scores[read2_check] = 1
+			scores[reverse_score] = 1
 	    else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
@@ -684,7 +686,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 	    total = sum(scores.values())
 	    for mismatch in sorted(scores):
 		# print mismatch, scores[mismatch]
-		print "Percentage of primers " + str(mismatch) + " mismatched bases away from expected sequence: \
+		print "Percentage of primers " + str("{:g}".format(mismatch)) + " mismatched bases away from expected sequence: \
 {:.2%}".format(scores[mismatch]/float(total))
 
 	#if args.primercheck:
