@@ -2,6 +2,8 @@
 
 from argparse import (ArgumentParser, FileType)
 # from pyfaidx import Fasta
+from numpy import *
+import Gnuplot, Gnuplot.funcutils
 import datetime
 import logging
 import sys
@@ -527,18 +529,18 @@ def possible_primer(primer_sequence, block_info, bases, pos, direction):
     # generates possible primers maximum of locationthresh away from expected position
     forward_primer_end = int(block_info[1]) - pos
     reverse_primer_start = int(block_info[2]) - pos + 1
-    #forward_primer_length = len(primer_sequence[block_info[3]])
-    #reverse_primer_length = len(primer_sequence[block_info[4]])
+    forward_primer_length = len(primer_sequence[block_info[3]])
+    reverse_primer_length = len(primer_sequence[block_info[4]])
 
     if direction == -1:
 	primer_bases = []
-	for primer_base in bases[:forward_primer_end]:
+	for primer_base in bases[(forward_primer_end - forward_primer_length):forward_primer_end]:
 	    primer_bases.append(primer_base.base)
 	return "".join([b for b in primer_bases])
 
     if direction == 1:
 	primer_bases = []
-	for primer_base in bases[reverse_primer_start:]:
+	for primer_base in bases[reverse_primer_start:(reverse_primer_start + reverse_primer_length)]:
 	    primer_bases.append(primer_base.base)
 	return "".join([b for b in primer_bases])
 
@@ -567,26 +569,31 @@ def possible_primer(primer_sequence, block_info, bases, pos, direction):
 
 def primer_diff(primer1, primer2):
     # compares two primers (in string representation)
-    for alignment in pairwise2.align.globalxx(primer1, primer2):
-	if alignment != []:
-	    return len(primer1) - alignment[2]
-    return len(primer1)
+    #print pairwise2.align.globalxx(primer1, primer2, score_only=1)
+    score = pairwise2.align.globalxx(primer1, primer2, score_only=1)
+    if isinstance(score, float):
+	return len(primer1) - score
+    else:
+	return len(primer1)
+    #return len(primer1) - pairwise2.align.globalxx(primer1, primer2, score_only=1)
+	#if alignment != []:
+	 #   return len(primer1) - alignment[2]
+    #return len(primer1)
 
 
 def check_primers(primer_sequence, block_info, bases, pos, basethresh, locationthresh):
-    # checks if the primer is similar to what we expect from what we expect, can differ in base sequence by basethresh and location 
-    # by location thresh
+    # checks if the primer sequence in the read is what we expect it to be, and return scores for the forward and reverse
+    # primers indicating how far away they are from the expected
     ref_primer_forward = primer_sequence[block_info[3]]
     ref_primer_reverse = primer_sequence[block_info[4]]
     forward_primer_region = possible_primer(primer_sequence, block_info, bases, pos, -1)
     reverse_primer_region = possible_primer(primer_sequence, block_info, bases, pos, 1)
-    # print reverse_primers
+    
     forward_var = 1
     reverse_var = 1
-    
+
     forward_score = primer_diff(ref_primer_forward, forward_primer_region)
     reverse_score = primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region))
-
     return [forward_score, reverse_score]
 
    # if primer_diff(ref_primer_forward, forward_primer_region) <= basethresh:
@@ -607,8 +614,9 @@ def printable_base(bases):
     else:
 	return "bases"
 
-def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence):
+def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2):
     coverage_info = []
+    total_scores = {}
     for block_info in block_coords:
         chr, start, end = block_info[:3]
 	start = int(start)
@@ -617,10 +625,10 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         # process all the reads in one block
         block_vars = {}
         num_pairs = 0
-	num_primer_vars = 0
+	# num_primer_vars = 0
 	scores = {}
 	# use 0 based coordinates to lookup reads from bam file
-        read_pairs = lookup_reads(args.overlap, bam, chr, start - 21, end - 1)
+        read_pairs = lookup_reads(args.overlap, bam, chr, start - 1, end - 1)
 	for read_name, reads in read_pairs.items():
             if len(reads) == 1:
                 logging.warning("read {} with no pair".format(read_name))
@@ -671,23 +679,38 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 			scores[forward_score] += 1
 		    else:
 			scores[forward_score] = 1
+		    if forward_score in total_scores:
+			total_scores[forward_score] += 1
+		    else:
+			total_scores[forward_score] = 1
 		    if reverse_score in scores:
 			scores[reverse_score] += 1
 		    else:
 			scores[reverse_score] = 1
+		    if reverse_score in total_scores:
+			total_scores[reverse_score] += 1
+		    else:
+			total_scores[reverse_score] = 1
 	    else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
-	
+
 	if args.primercheck:
-	    print '\n' + block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]	
-	    print block_info[4], int(block_info[2]) + 1, reverse_complement(primer_sequence[block_info[4]])
+	    data.write("# " + block_info[3] + '\n')
+
+	if args.primercheck:
+	    # print '\n' + block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]	
+	    # print block_info[4], int(block_info[2]) + 1, reverse_complement(primer_sequence[block_info[4]])
 	    total = sum(scores.values())
 	    for mismatch in sorted(scores):
 		# print mismatch, scores[mismatch]
-		print "Percentage of primers " + str("{:g}".format(mismatch)) + " mismatched bases away from expected sequence: \
-{:.2%}".format(scores[mismatch]/float(total))
+		# print "Percentage of primers " + str("{:g}".format(mismatch)) + " mismatched bases away from expected sequence: \
+# {:.2%}".format(scores[mismatch]/float(total))
+		if mismatch < 10:
+		    data.write(str(mismatch) + '\t' + "{:.2%}".format(scores[mismatch]/float(total)) + '\n')
+	if args.primercheck:
+	    data.write("\n\n")
 
 	#if args.primercheck:
 	 #   print block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]
@@ -714,6 +737,13 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 	    write_variant(kept_variants_file, var)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
+    
+    if args.primercheck:
+	total2 = sum(total_scores.values())
+	for mismatch in sorted(total_scores):
+	    if mismatch < 10:
+		data2.write(str(mismatch) + '\t' + "{:.2%}".format(total_scores[mismatch]/float(total2)) + '\n')
+
     if args.coverdir is not None:
         coverage_filename = os.path.join(args.coverdir, coverage_filename)
     with open(coverage_filename, 'w') as coverage_file:
@@ -765,6 +795,8 @@ def process_bams(args):
     # with open(args.out, "w") as kept_variants_file, \
     #      open(args.out + '.binned', "w") as binned_variants_file:
     with open(args.out, "w") as kept_variants_file:
+	graph_data = open("data.dat", "w")
+	graph_total_data = open("data2.dat", "w")
 	write_metadata(args, kept_variants_file)
 	# write_metadata(args, binned_variants_file)
 	kept_variants_file.write(output_header + '\n')
@@ -779,7 +811,7 @@ def process_bams(args):
                 exit('Cannot deduce sample name from bam filename {}'.format(bam_filename))
             with pysam.Samfile(bam_filename, "rb") as bam:
                 logging.info("processing bam file {}".format(bam_filename))
-                process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence)
+                process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, graph_data, graph_total_data)
 
 def main():
     args = parse_args()
