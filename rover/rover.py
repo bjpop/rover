@@ -10,6 +10,7 @@ import sys
 import pysam
 import re
 import os
+import vcf
 from operator import itemgetter
 import csv
 from version import rover_version
@@ -60,6 +61,8 @@ def parse_args():
 	help='Maximum allowed variance in base sequence of primers.')
     parser.add_argument('--primerlocationthresh', metavar='N', type=int, 
 	help='Maximum allowed variance in location of primers.')
+    parser.add_argument('--id_info', type=str, 
+	help='File containing rs ID information')
     parser.add_argument('--coverdir',
         required=False,
         help='Directory to write coverage files, defaults to current working directory.')
@@ -798,6 +801,7 @@ def process_bams(args):
 	graph_data = open("data.dat", "w")
 	graph_total_data = open("data2.dat", "w")
 	write_metadata(args, kept_variants_file)
+	vcf_reader = vcf.Reader(open(args.id_info + '.idx', 'r'))
 	# write_metadata(args, binned_variants_file)
 	kept_variants_file.write(output_header + '\n')
         # binned_variants_file.write(output_header + '\n')
