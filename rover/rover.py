@@ -507,8 +507,9 @@ def write_variant(file, variant, id_info, args):
     id = 0
     if variant.fil() == "PASS" and args.id_info:
 	for record in id_info.fetch(variant.chr, variant.position(), variant.position() + max(len(variant.ref()), len(variant.alt())) + 1):
-	    if record.POS == variant.position() and record.REF == variant.ref():
+	    if record.POS == variant.position() and record.REF == variant.ref() and (variant.alt() in record.ALT):
 		id = 1
+		#print variant.alt(), record.ALT
     if id == 1:
 	file.write('\t'.join([variant.chr, str(variant.position()), \
 str(record.ID), variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
