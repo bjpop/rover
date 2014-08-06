@@ -2,8 +2,8 @@
 
 from argparse import (ArgumentParser, FileType)
 # from pyfaidx import Fasta
-from numpy import *
-import Gnuplot, Gnuplot.funcutils
+# from numpy import *
+# import Gnuplot, Gnuplot.funcutils
 import datetime
 import logging
 import sys
@@ -509,7 +509,6 @@ def write_variant(file, variant, id_info, args):
 	for record in id_info.fetch(variant.chr, variant.position(), variant.position() + max(len(variant.ref()), len(variant.alt())) + 1):
 	    if record.POS == variant.position() and record.REF == variant.ref() and (variant.alt() in record.ALT):
 		id = 1
-		#print variant.alt(), record.ALT
     if id == 1:
 	file.write('\t'.join([variant.chr, str(variant.position()), \
 str(record.ID), variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
@@ -674,13 +673,13 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                 set_variants2 = set(variants2)
                 # find the variants each read in the pair share in common
                 same_variants = set_variants1.intersection(set_variants2)
-		for var in same_variants:
+		#for var in same_variants:
                     # only consider variants within the bounds of the block
-                    if var.pos >= start and var.pos <= end:
-                        if var in block_vars:
-                            block_vars[var] += 1
-			else:
-			    block_vars[var] = 1
+                    #if var.pos >= start and var.pos <= end:
+                        #if var in block_vars:
+                            #block_vars[var] += 1
+			#else:
+			    #block_vars[var] = 1
 		if args.primercheck:
 		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, \
 				args.primerlocationthresh)
@@ -704,6 +703,15 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 			total_scores[reverse_score] += 1
 		    else:
 			total_scores[reverse_score] = 1
+		for var in same_variants:
+                    # only consider variants within the bounds of the block
+                    if var.pos >= start and var.pos <= end:
+                        # check here if the score is below a certain threshold, if not don't record it
+			# possibly also decrement num_pairs, since we are ignoring this read pair
+			if var in block_vars:
+                            block_vars[var] += 1
+                        else:
+                            block_vars[var] = 1
 	    else:
                 logging.warning("read {} with more than 2".format(read_name))
         logging.info("number of read pairs in block: {}".format(num_pairs))
