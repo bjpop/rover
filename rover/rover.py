@@ -503,8 +503,17 @@ def proportion_overlap(block_start, block_end, read):
         block_size = block_end - block_start + 1
         return float(overlap_size) / block_size
 
-def write_variant(file, variant):
-    file.write('\t'.join([variant.chr, str(variant.position()), \
+def write_variant(file, variant, id_info, args):
+    id = 0
+    if variant.fil() == "PASS" and args.id_info:
+	for record in id_info.fetch(variant.chr, variant.position(), variant.position() + max(len(variant.ref()), len(variant.alt())) + 1):
+	    if record.POS == variant.position() and record.REF == variant.ref():
+		id = 1
+    if id == 1:
+	file.write('\t'.join([variant.chr, str(variant.position()), \
+str(record.ID), variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
+    else:
+	file.write('\t'.join([variant.chr, str(variant.position()), \
 '.', variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
 
 def nts(s):
@@ -617,7 +626,7 @@ def printable_base(bases):
     else:
 	return "bases"
 
-def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2):
+def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2, id_info):
     coverage_info = []
     total_scores = {}
     for block_info in block_coords:
@@ -737,7 +746,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 		var.filter = ''.join([nts(var.filter), ";at"])
 	    if proportion < args.proportionthresh:
 		var.filter = ''.join([nts(var.filter), ";pt"])
-	    write_variant(kept_variants_file, var)
+	    write_variant(kept_variants_file, var, id_info, args)
         coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     
@@ -790,6 +799,7 @@ output_header = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER"
 def process_bams(args):
     block_coords = get_block_coords(args.primers)
     primer_sequence = {}
+    vcf_reader = 0
     # a dictionary of primers and their sequences
     if args.primercheck:
 	primer_info = get_primer_sequence(args.primercheck)
@@ -801,7 +811,8 @@ def process_bams(args):
 	graph_data = open("data.dat", "w")
 	graph_total_data = open("data2.dat", "w")
 	write_metadata(args, kept_variants_file)
-	vcf_reader = vcf.Reader(open(args.id_info + '.idx', 'r'))
+	if args.id_info:
+	    vcf_reader = vcf.Reader(filename=args.id_info)
 	# write_metadata(args, binned_variants_file)
 	kept_variants_file.write(output_header + '\n')
         # binned_variants_file.write(output_header + '\n')
@@ -815,7 +826,7 @@ def process_bams(args):
                 exit('Cannot deduce sample name from bam filename {}'.format(bam_filename))
             with pysam.Samfile(bam_filename, "rb") as bam:
                 logging.info("processing bam file {}".format(bam_filename))
-                process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, graph_data, graph_total_data)
+                process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, graph_data, graph_total_data, vcf_reader)
 
 def main():
     args = parse_args()
