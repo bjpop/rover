@@ -624,6 +624,8 @@ def printable_base(bases):
 def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2, id_info):
     coverage_info = []
     total_scores = {}
+    data.write('\t'.join(["Block name", "0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0", "9.0"]))
+    data.write('\n')
     for block_info in block_coords:
         chr, start, end = block_info[:3]
 	start = int(start)
@@ -715,21 +717,25 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
 
-	if args.primercheck:
-	    data.write("# " + block_info[3] + '\n')
+	#if args.primercheck:
+	 #   data.write("# " + block_info[3] + '\n')
 
 	if args.primercheck:
 	    # print '\n' + block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]	
 	    # print block_info[4], int(block_info[2]) + 1, reverse_complement(primer_sequence[block_info[4]])
+	    data.write(block_info[3] + '\t')
 	    total = sum(scores.values())
-	    for mismatch in sorted(scores):
+	    #data.write('\t'.join(["0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0", "9.0"]))
+	    for mismatch in range(0, 10):
 		# print mismatch, scores[mismatch]
 		# print "Percentage of primers " + str("{:g}".format(mismatch)) + " mismatched bases away from expected sequence: \
 # {:.2%}".format(scores[mismatch]/float(total))
-		if mismatch < 10:
-		    data.write(str(mismatch) + '\t' + "{:.2%}".format(scores[mismatch]/float(total)) + '\n')
+		if float(mismatch) in scores.keys():
+		    data.write("{:.2%}".format(scores[mismatch]/float(total)) + '\t')
+		else:
+		    data.write("-" + '\t')
 	if args.primercheck:
-	    data.write("\n\n")
+	    data.write("\n")
 
 	#if args.primercheck:
 	 #   print block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]
@@ -758,6 +764,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
     coverage_filename = sample + '.coverage'
     
     if args.primercheck:
+	data2.write("# " + sample + '\n')
 	total2 = sum(total_scores.values())
 	for mismatch in sorted(total_scores):
 	    if mismatch < 10:
