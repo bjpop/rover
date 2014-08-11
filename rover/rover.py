@@ -21,7 +21,8 @@ from Bio import pairwise2
 default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
-# default_primer_base_threshold = 1
+default_primer_threshold = 5
+default_gap_penalty = 0
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -57,10 +58,10 @@ def parse_args():
         help='Minimum base quality score (phred).')
     parser.add_argument('--primercheck', metavar='FILE', type=str, 
 	help='Expected base sequences and locations of primers as determined by a primer generating program.')
-    parser.add_argument('--primerthresh', metavar='N', type=int,
+    parser.add_argument('--primerthresh', metavar='N', type=int, default=default_primer_threshold, 
 	help='Maximum allowed variance in base sequence of primers.')
-    parser.add_argument('--primerlocationthresh', metavar='N', type=int, 
-	help='Maximum allowed variance in location of primers.')
+    parser.add_argument('--gap_penalty', metavar='N', type=float, default=default_gap_penalty,
+	help='Score deduction on gap in alignment.')
     parser.add_argument('--id_info', type=str, 
 	help='File containing rs ID information')
     parser.add_argument('--coverdir',
@@ -523,22 +524,16 @@ def nts(s):
     return str(s)
 
 def reverse_complement(sequence):
+    complementary_bases = {"A":"T", "T":"A", "G":"C", "C":"G", "N":"N"}
     rc_bases = []
     for base in sequence:
-	if base == "A":
-	    rc_bases.append("T")
-        elif base == "T":
-	    rc_bases.append("A")
-	elif base == "G":
-	    rc_bases.append("C")
-	elif base == "C":
-	    rc_bases.append("G")
+	rc_bases.append(complementary_bases[str(base)])
     rc = "".join([b for b in rc_bases])
     return rc[::-1]
 
 
-def possible_primer(primer_sequence, block_info, bases, pos, direction):
-    # generates possible primers maximum of locationthresh away from expected position
+def possible_primer(primer_sequence, block_info, bases, pos, direction, primerthresh):
+    # generates possible primers given the primer sequence and knowledge about where the primer should be located
     forward_primer_end = int(block_info[1]) - pos
     reverse_primer_start = int(block_info[2]) - pos + 1
     forward_primer_length = len(primer_sequence[block_info[3]])
@@ -546,13 +541,13 @@ def possible_primer(primer_sequence, block_info, bases, pos, direction):
 
     if direction == -1:
 	primer_bases = []
-	for primer_base in bases[(forward_primer_end - forward_primer_length):forward_primer_end]:
+	for primer_base in bases[:forward_primer_end]:
 	    primer_bases.append(primer_base.base)
 	return "".join([b for b in primer_bases])
 
     if direction == 1:
 	primer_bases = []
-	for primer_base in bases[reverse_primer_start:(reverse_primer_start + reverse_primer_length)]:
+	for primer_base in bases[reverse_primer_start:]:
 	    primer_bases.append(primer_base.base)
 	return "".join([b for b in primer_bases])
 
@@ -579,10 +574,10 @@ def possible_primer(primer_sequence, block_info, bases, pos, direction):
 	    #exit()
 #	return primers
 
-def primer_diff(primer1, primer2):
+def primer_diff(primer1, primer2, gap_penalty):
     # compares two primers (in string representation)
     #print pairwise2.align.globalxx(primer1, primer2, score_only=1)
-    score = pairwise2.align.globalxx(primer1, primer2, score_only=1)
+    score = pairwise2.align.globalxs(primer1, primer2, gap_penalty, 0, score_only=1)
     if isinstance(score, float):
 	return len(primer1) - score
     else:
@@ -593,19 +588,19 @@ def primer_diff(primer1, primer2):
     #return len(primer1)
 
 
-def check_primers(primer_sequence, block_info, bases, pos, basethresh, locationthresh):
+def check_primers(primer_sequence, block_info, bases, pos, primerthresh, gap_penalty):
     # checks if the primer sequence in the read is what we expect it to be, and return scores for the forward and reverse
     # primers indicating how far away they are from the expected
     ref_primer_forward = primer_sequence[block_info[3]]
     ref_primer_reverse = primer_sequence[block_info[4]]
-    forward_primer_region = possible_primer(primer_sequence, block_info, bases, pos, -1)
-    reverse_primer_region = possible_primer(primer_sequence, block_info, bases, pos, 1)
+    forward_primer_region = possible_primer(primer_sequence, block_info, bases, pos, -1, primerthresh)
+    reverse_primer_region = possible_primer(primer_sequence, block_info, bases, pos, 1, primerthresh)
     
     forward_var = 1
     reverse_var = 1
 
-    forward_score = primer_diff(ref_primer_forward, forward_primer_region)
-    reverse_score = primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region))
+    forward_score = primer_diff(ref_primer_forward, forward_primer_region, gap_penalty)
+    reverse_score = primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region), gap_penalty)
     return [forward_score, reverse_score]
 
    # if primer_diff(ref_primer_forward, forward_primer_region) <= basethresh:
@@ -637,6 +632,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         # process all the reads in one block
         block_vars = {}
         num_pairs = 0
+	num_discards = 0
 	# num_primer_vars = 0
 	scores = {}
 	# use 0 based coordinates to lookup reads from bam file
@@ -645,7 +641,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
             if len(reads) == 1:
                 logging.warning("read {} with no pair".format(read_name))
             elif len(reads) == 2:
-                num_pairs += 1
+		num_pairs += 1
                 read1, read2 = reads
                 #print(read1.query)
                 #print([ord(x) - 33 for x in read1.qqual])
@@ -673,18 +669,9 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                 set_variants2 = set(variants2)
                 # find the variants each read in the pair share in common
                 same_variants = set_variants1.intersection(set_variants2)
-		#for var in same_variants:
-                    # only consider variants within the bounds of the block
-                    #if var.pos >= start and var.pos <= end:
-                        #if var in block_vars:
-                            #block_vars[var] += 1
-			#else:
-			    #block_vars[var] = 1
 		if args.primercheck:
-		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, \
-				args.primerlocationthresh)
-		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, \
-				args.primerlocationthresh)
+		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, args.gap_penalty)
+		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, args.gap_penalty)
 		    forward_score = max(read1_check[0], read2_check[0])
 		    reverse_score = max(read1_check[1], read2_check[1])
 		    if forward_score in scores:
@@ -703,17 +690,28 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 			total_scores[reverse_score] += 1
 		    else:
 			total_scores[reverse_score] = 1
-		for var in same_variants:
-                    # only consider variants within the bounds of the block
-                    if var.pos >= start and var.pos <= end:
-                        # check here if the score is below a certain threshold, if not don't record it
-			# possibly also decrement num_pairs, since we are ignoring this read pair
-			if var in block_vars:
-                            block_vars[var] += 1
-                        else:
-                            block_vars[var] = 1
+		discard = 0
+		if args.primercheck:
+		    if forward_score > args.primerthresh or reverse_score > args.primerthresh:
+			discard = 1
+		if discard == 0:
+		    for var in same_variants:
+                        # only consider variants within the bounds of the block
+                        if var.pos >= start and var.pos <= end:
+                            # check here if the score is below a certain threshold, if not don't record it
+			    # also decrement num_pairs, since we are ignoring this read pair
+			    if var in block_vars:
+                                block_vars[var] += 1
+                            else:
+                                block_vars[var] = 1
+		else:
+		    logging.warning("read {} discarded due to greater than acceptable variance in primer sequence".format(read_name))
+		    num_pairs -= 1
+		    num_discards += 1
 	    else:
                 logging.warning("read {} with more than 2".format(read_name))
+	if args.primercheck:
+	    logging.warning("number of reads discarded due to unexpected primer sequence: {}".format(num_discards * 2))
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
 
