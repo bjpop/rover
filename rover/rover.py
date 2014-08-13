@@ -28,8 +28,8 @@ def parse_args():
     "Consider mapped reads to amplicon sites"
 
     parser = ArgumentParser(description="Consider mapped reads to amplicon sites")
-    parser.add_argument('--reference', type=str, 
-	 help='File name of reference DNA sequence in FASTA format.')
+    #parser.add_argument('--reference', type=str, 
+#	 help='File name of reference DNA sequence in FASTA format.')
     parser.add_argument(
     '--version', action='version', version='%(prog)s ' + rover_version)
     parser.add_argument(
@@ -506,10 +506,12 @@ def proportion_overlap(block_start, block_end, read):
 
 def write_variant(file, variant, id_info, args):
     id = 0
+    # If the variant is deemed a "PASS", find the relevant rs number from dbsnp.
     if variant.fil() == "PASS" and args.id_info:
 	for record in id_info.fetch(variant.chr, variant.position(), variant.position() + max(len(variant.ref()), len(variant.alt())) + 1):
 	    if record.POS == variant.position() and record.REF == variant.ref() and (variant.alt() in record.ALT):
 		id = 1
+		#record2 = record
     if id == 1:
 	file.write('\t'.join([variant.chr, str(variant.position()), \
 str(record.ID), variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
@@ -577,16 +579,11 @@ def possible_primer(primer_sequence, block_info, bases, pos, direction, primerth
 def primer_diff(primer1, primer2, gap_penalty):
     # compares two primers (in string representation)
     #print pairwise2.align.globalxx(primer1, primer2, score_only=1)
-    score = pairwise2.align.globalxs(primer1, primer2, gap_penalty, 0, score_only=1)
+    score = pairwise2.align.localxs(primer1, primer2, -1 * gap_penalty, -1 * gap_penalty, score_only=1)
     if isinstance(score, float):
 	return len(primer1) - score
     else:
 	return len(primer1)
-    #return len(primer1) - pairwise2.align.globalxx(primer1, primer2, score_only=1)
-	#if alignment != []:
-	 #   return len(primer1) - alignment[2]
-    #return len(primer1)
-
 
 def check_primers(primer_sequence, block_info, bases, pos, primerthresh, gap_penalty):
     # checks if the primer sequence in the read is what we expect it to be, and return scores for the forward and reverse
@@ -717,19 +714,10 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
 
-	#if args.primercheck:
-	 #   data.write("# " + block_info[3] + '\n')
-
 	if args.primercheck:
-	    # print '\n' + block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]	
-	    # print block_info[4], int(block_info[2]) + 1, reverse_complement(primer_sequence[block_info[4]])
 	    data.write(block_info[3] + '\t')
 	    total = sum(scores.values())
-	    #data.write('\t'.join(["0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0", "9.0"]))
 	    for mismatch in range(0, 10):
-		# print mismatch, scores[mismatch]
-		# print "Percentage of primers " + str("{:g}".format(mismatch)) + " mismatched bases away from expected sequence: \
-# {:.2%}".format(scores[mismatch]/float(total))
 		if float(mismatch) in scores.keys():
 		    data.write("{:.2%}".format(scores[mismatch]/float(total)) + '\t')
 		else:
@@ -782,8 +770,8 @@ def write_metadata(args, file):
     today = datetime.date.today()
     file.write("##fileDate=" + str(today)[:4] + str(today)[5:7] + str(today)[8:] + '\n')
     file.write("##source=ROVER-PCR Variant Caller" + '\n')
-    if args.reference:
-	file.write("##reference=file:///" + str(args.reference) + '\n')
+    #if args.reference:
+#	file.write("##reference=file:///" + str(args.reference) + '\n')
     # file.write("##contig=" + '\n')
     # file.write("##phasing=" + '\n')
     file.write("##INFO=<ID=Sample,Number=1,Type=String,Description=\"Sample Name\">" + '\n')
