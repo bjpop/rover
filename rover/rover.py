@@ -28,8 +28,6 @@ def parse_args():
     "Consider mapped reads to amplicon sites"
 
     parser = ArgumentParser(description="Consider mapped reads to amplicon sites")
-    #parser.add_argument('--reference', type=str, 
-#	 help='File name of reference DNA sequence in FASTA format.')
     parser.add_argument(
     '--version', action='version', version='%(prog)s ' + rover_version)
     parser.add_argument(
@@ -123,52 +121,6 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     result = []
     context = None    
 
-#    while cigar and seq_index < len(aligned_bases):
-#        cigar_code, cigar_segment_extent = cigar[0]
-#	if cigar_code == 0:
-#	    # Cigar Match
-#	    if fasta[ref + 1].upper() == aligned_bases[seq_index].base:
-#	    	pos += cigar_segment_extent
-#		ref += cigar_segment_extent
-#		seq_index += cigar_segment_extent
-#		cigar = cigar[1:]
-#	    else:
-#		seq_base_qual = aligned_bases[seq_index]
-#		seq_base = seq_base_qual.base
-#		if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
-#	            result.append(SNV(chr, pos, fasta[ref + 1], seq_base, seq_base_qual.qual, None))
-#		else:
-#		    result.append(SNV(chr, pos, fasta[ref + 1], seq_base, seq_base_qual.qual, ";qlt"))
-#		cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
-#		seq_index += 1
-#		ref += 1
-#		pos += 1
-#	elif cigar_code == 1:
-#	    extra_bases_quals = aligned_bases[(seq_index):(seq_index + cigar_segment_extent)]
-#	    extra_bases = ''.join([b.base for b in extra_bases_quals])
-#	    context = fasta[ref - 1]
-#	    if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in extra_bases_quals]):
-#	        result.append(Insertion(chr, pos, extra_bases, 15, None, context))
-#	    else:
-#		result.append(Insertion(chr, pos, extra_bases, 15, ";qlt", context))
-#	    cigar = cigar[1:]
-#	    seq_index += cigar_segment_extent
-#	elif cigar_code == 2:
-#	    deleted_bases = fasta[ref:(ref + cigar_segment_extent)]
-#	    context = fasta[ref - 1]
-#	    seq_base = aligned_bases[seq_index]
-#	    if seq_base.qual >= args.qualthresh:
-#               result.append(Deletion(chr, pos, deleted_bases, 15, None, context))
-#	    else:
-#		result.append(Deletion(chr, pos, deleted_bases, 15, ";qlt", context))
-#	    pos += cigar_segment_extent
-#	    ref += cigar_segment_extent
-#	    cigar = cigar[1:]
-#	else:
-#	    logging.info("unexpected cigar code {}".format(cigar_orig))
-#	    exit()
-#    return result
-    
     while cigar and md:
 	cigar_code, cigar_segment_extent = cigar[0]
 	next_md = md[0]
@@ -511,7 +463,6 @@ def write_variant(file, variant, id_info, args):
 	for record in id_info.fetch(variant.chr, variant.position(), variant.position() + max(len(variant.ref()), len(variant.alt())) + 1):
 	    if record.POS == variant.position() and record.REF == variant.ref() and (variant.alt() in record.ALT):
 		id = 1
-		#record2 = record
     if id == 1:
 	file.write('\t'.join([variant.chr, str(variant.position()), \
 str(record.ID), variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'.join(variant.info)]) + '\n')
@@ -533,8 +484,7 @@ def reverse_complement(sequence):
     rc = "".join([b for b in rc_bases])
     return rc[::-1]
 
-
-def possible_primer(primer_sequence, block_info, bases, pos, direction, primerthresh):
+def possible_primer(primer_sequence, block_info, bases, pos, direction, primerthresh, fcorrection, rcorrection):
     # generates possible primers given the primer sequence and knowledge about where the primer should be located
     forward_primer_end = int(block_info[1]) - pos
     reverse_primer_start = int(block_info[2]) - pos + 1
@@ -543,73 +493,35 @@ def possible_primer(primer_sequence, block_info, bases, pos, direction, primerth
 
     if direction == -1:
 	primer_bases = []
-	for primer_base in bases[:forward_primer_end]:
+	for primer_base in bases[:forward_primer_end + fcorrection]:
 	    primer_bases.append(primer_base.base)
 	return "".join([b for b in primer_bases])
 
     if direction == 1:
 	primer_bases = []
-	for primer_base in bases[reverse_primer_start:]:
+	for primer_base in bases[reverse_primer_start - rcorrection:]:
 	    primer_bases.append(primer_base.base)
 	return "".join([b for b in primer_bases])
 
-#    if direction == -1:
- #       for i in range((-1 * locationthresh), (locationthresh + 1)):
-  #          primer_bases = []
-   #         for primer_base in bases[(forward_primer_end - forward_primer_length + i):(forward_primer_end + i)]:
-#	        primer_bases.append(primer_base.base)    
-#	    primers.append("".join([b for b in primer_bases]))
-	#if block_info[3] == "XRCC2_X2_F1":
-	    #print bases
-	   #  print primers
-	    #exit()
- #       return primers
-  #  elif direction == 1:
-#	for i in range((-1 * locationthresh), (locationthresh + 1)):
-#	    primer_bases = []
-#	    for primer_base in bases[(reverse_primer_start + i):(reverse_primer_start + reverse_primer_length + i)]:
-#		primer_bases.append(primer_base.base)
-#	    primers.append("".join([b for b in primer_bases]))
-	#if block_info[4] == "XRCC2_X2_R1":
-	    #print bases
-	 #   print primers
-	    #exit()
-#	return primers
-
 def primer_diff(primer1, primer2, gap_penalty):
     # compares two primers (in string representation)
-    #print pairwise2.align.globalxx(primer1, primer2, score_only=1)
-    score = pairwise2.align.localxs(primer1, primer2, -1 * gap_penalty, -1 * gap_penalty, score_only=1)
+    score = pairwise2.align.localxs(primer2, primer1, -1 * gap_penalty, -1 * gap_penalty, score_only=1)
     if isinstance(score, float):
 	return len(primer1) - score
     else:
 	return len(primer1)
 
-def check_primers(primer_sequence, block_info, bases, pos, primerthresh, gap_penalty):
+def check_primers(primer_sequence, block_info, bases, pos, primerthresh, gap_penalty, fcorrection, rcorrection):
     # checks if the primer sequence in the read is what we expect it to be, and return scores for the forward and reverse
     # primers indicating how far away they are from the expected
     ref_primer_forward = primer_sequence[block_info[3]]
     ref_primer_reverse = primer_sequence[block_info[4]]
-    forward_primer_region = possible_primer(primer_sequence, block_info, bases, pos, -1, primerthresh)
-    reverse_primer_region = possible_primer(primer_sequence, block_info, bases, pos, 1, primerthresh)
+    forward_primer_region = possible_primer(primer_sequence, block_info, bases, pos, -1, primerthresh, fcorrection, rcorrection)
+    reverse_primer_region = possible_primer(primer_sequence, block_info, bases, pos, 1, primerthresh, fcorrection, rcorrection)
     
-    forward_var = 1
-    reverse_var = 1
-
     forward_score = primer_diff(ref_primer_forward, forward_primer_region, gap_penalty)
     reverse_score = primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region), gap_penalty)
     return [forward_score, reverse_score]
-
-   # if primer_diff(ref_primer_forward, forward_primer_region) <= basethresh:
-#	forward_var = 0
- #   if primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region)) <= basethresh:
-#	reverse_var = 0
-    #if block_info[3] == "PALB2_X3_F2":
-#	print forward_var, reverse_var
- #   if forward_var == 0 and reverse_var == 0:
-#	return 0
- #   else:
-#	return 1
 
 def printable_base(bases):
     # correct plurality
@@ -621,7 +533,7 @@ def printable_base(bases):
 def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2, id_info):
     coverage_info = []
     total_scores = {}
-    data.write('\t'.join(["Block name", "0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0", "9.0"]))
+    data.write('\t'.join(["Primer name", "0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0", "9.0"]))
     data.write('\n')
     for block_info in block_coords:
         chr, start, end = block_info[:3]
@@ -633,7 +545,8 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         num_pairs = 0
 	num_discards = 0
 	# num_primer_vars = 0
-	scores = {}
+	forward_scores = {}
+	reverse_scores = {}
 	# use 0 based coordinates to lookup reads from bam file
         read_pairs = lookup_reads(args.overlap, bam, chr, start - 1, end - 1)
 	for read_name, reads in read_pairs.items():
@@ -642,49 +555,53 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
             elif len(reads) == 2:
 		num_pairs += 1
                 read1, read2 = reads
-                #print(read1.query)
-                #print([ord(x) - 33 for x in read1.qqual])
-                #print(read2.query)
-                #print([ord(x) - 33 for x in read2.qqual])
-                #exit()
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
-		
-		#if args.primercheck:
-		    #if check_primer_pair(primer_sequence, block_info, read1_bases, read2_bases, read1.pos + 1, \
-		#		read2.pos + 1, args.primerthresh, args.primerlocationthresh) > 0:
-		#	num_primer_diff += 1
-		 #   read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, \
-		#		args.primerlocationthresh)
-		 #   read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, \
-		#		args.primerlocationthresh)
-		    # print read1_check, read2_check
-		 #   if read1_check > 0 or read2_check > 0:
-		#	num_primer_vars += 1
-
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
+
                 # find the variants each read in the pair share in common
                 same_variants = set_variants1.intersection(set_variants2)
+		fcorrection1, rcorrection1, fcorrection2, rcorrection2 = 0, 0, 0, 0
 		if args.primercheck:
-		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, args.gap_penalty)
-		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, args.gap_penalty)
+		    for var in set_variants1:
+		        # correction for when there's an insertion prior to start of block
+			# may need to look at more bases to find the primer sequence we are expecting
+			if var.pos <= start and isinstance(var, Insertion):
+			    fcorrection1 = len(var.alt()) - 1
+			# correction for when there's a deletion prior to the expected start of the reverse primer
+			# primer sequence in the mapped alignment may start earlier than we expect
+			if var.pos <= end and isinstance(var, Deletion):
+			    rcorrection1 = len(var.ref()) - 1
+		    for var in set_variants2:
+			if var.pos <= start and isinstance(var, Insertion):
+			    fcorrection2 = len(var.alt()) - 1
+			if var.pos <= end and isinstance(var, Deletion):
+			    rcorrection2 = len(var.ref()) - 1
+		if args.primercheck:
+		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, args.gap_penalty, \
+		fcorrection1, rcorrection1)
+		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, args.gap_penalty, \
+		fcorrection2, rcorrection2)
+		    
+		    # taking the worst case from the two reads
+		    # i.e. if one of the reads does not pass the primerthresh check, then both reads will be discarded
 		    forward_score = max(read1_check[0], read2_check[0])
 		    reverse_score = max(read1_check[1], read2_check[1])
-		    if forward_score in scores:
-			scores[forward_score] += 1
+		    if forward_score in forward_scores:
+			forward_scores[forward_score] += 1
 		    else:
-			scores[forward_score] = 1
+			forward_scores[forward_score] = 1
 		    if forward_score in total_scores:
 			total_scores[forward_score] += 1
 		    else:
 			total_scores[forward_score] = 1
-		    if reverse_score in scores:
-			scores[reverse_score] += 1
+		    if reverse_score in reverse_scores:
+			reverse_scores[reverse_score] += 1
 		    else:
-			scores[reverse_score] = 1
+			reverse_scores[reverse_score] = 1
 		    if reverse_score in total_scores:
 			total_scores[reverse_score] += 1
 		    else:
@@ -704,6 +621,8 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                             else:
                                 block_vars[var] = 1
 		else:
+		    # one of the reads had a primer sequence which was too different from what we expected (based on argument primerthresh)
+		    # both reads were discarded as a result
 		    logging.warning("read {} discarded due to greater than acceptable variance in primer sequence".format(read_name))
 		    num_pairs -= 1
 		    num_discards += 1
@@ -715,25 +634,26 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         logging.info("number of variants found in block: {}".format(len(block_vars)))
 
 	if args.primercheck:
+	    
+	    # write data to .dat file for forward primers
 	    data.write(block_info[3] + '\t')
-	    total = sum(scores.values())
+	    forward_total = sum(forward_scores.values())
 	    for mismatch in range(0, 10):
-		if float(mismatch) in scores.keys():
-		    data.write("{:.2%}".format(scores[mismatch]/float(total)) + '\t')
+		if float(mismatch) in forward_scores.keys():
+		    data.write("{:.2%}".format(forward_scores[mismatch]/float(forward_total)) + '\t')
 		else:
 		    data.write("-" + '\t')
-	if args.primercheck:
 	    data.write("\n")
-
-	#if args.primercheck:
-	 #   print block_info[3], int(block_info[1]) - len(primer_sequence[block_info[3]]), primer_sequence[block_info[3]]
-	  #  print block_info[4], int(block_info[2]) + 1, reverse_complement(primer_sequence[block_info[4]])
-	   # print "Percentage of read pairs with primers differing by " + str(args.primerthresh) + \
-	#	" " + printable_base(args.primerthresh) + " or less from expected sequence " + str(args.primerlocationthresh) \
-#+ " or less away from expected location: {:.2%}".format((float(num_pairs) - float(num_primer_vars))/(num_pairs)) + '\n'
-	    #print "Percentage of read pairs with primers differing by more than " + str(args.primerthresh) + \
-	#	" " + printable_base(args.primerthresh) + " from each other or more than " + str(args.primerlocationthresh) + " away \
-#from expected location: {:.2%}".format(float(num_primer_diff)/(num_pairs)) + '\n'	
+		
+	    # write data to .dat file for reverse primers
+	    data.write(block_info[4] + '\t')
+            reverse_total = sum(reverse_scores.values())
+            for mismatch in range(0, 10):
+                if float(mismatch) in reverse_scores.keys():
+                    data.write("{:.2%}".format(reverse_scores[mismatch]/float(reverse_total)) + '\t')
+                else:
+                    data.write("-" + '\t')
+            data.write("\n")
 
 	for var in block_vars:
             num_vars = block_vars[var]
@@ -845,8 +765,6 @@ def main():
     logging.info('program started')
     logging.info('command line: {0}'.format(' '.join(sys.argv)))
     process_bams(args)
-
-
 
 if __name__ == '__main__':
     main()
