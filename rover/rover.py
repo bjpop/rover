@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 
 from argparse import (ArgumentParser, FileType)
-# from pyfaidx import Fasta
-# from numpy import *
-# import Gnuplot, Gnuplot.funcutils
 import datetime
 import logging
 import sys
@@ -22,11 +19,10 @@ default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
 default_primer_threshold = 5
-default_gap_penalty = 0
+default_gap_penalty = 1.0
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
-
     parser = ArgumentParser(description="Consider mapped reads to amplicon sites")
     parser.add_argument(
     '--version', action='version', version='%(prog)s ' + rover_version)
@@ -67,16 +63,13 @@ def parse_args():
         help='Directory to write coverage files, defaults to current working directory.')
     return parser.parse_args() 
 
-
 def get_block_coords(primers_file):
     with open(primers_file) as primers:
         return list(csv.reader(primers, delimiter='\t'))
 
-
 def get_primer_sequence(primers_coords_file):
     with open(primers_coords_file) as primer_coords:
 	return list(csv.reader(primer_coords, delimiter='\t'))
-
 
 def lookup_reads(min_overlap, bam, chr, start_col, end_col):
     # arguments are in zero-based indices
@@ -119,7 +112,7 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
     md_orig = md
     seq_index = 0
     result = []
-    context = None    
+    context = None
 
     while cigar and md:
 	cigar_code, cigar_segment_extent = cigar[0]
@@ -207,7 +200,6 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
 	    logging.info("unexpected cigar code {}".format(cigar_orig))
             exit()
     return result
-
 
 # SAM/BAM files store the quality score of a base as a byte (ascii character)
 # in "Qual plus 33 format". So we subtract off 33 from the ascii code
@@ -505,7 +497,7 @@ def possible_primer(primer_sequence, block_info, bases, pos, direction, primerth
 
 def primer_diff(primer1, primer2, gap_penalty):
     # compares two primers (in string representation)
-    score = pairwise2.align.localxs(primer2, primer1, -1 * gap_penalty, -1 * gap_penalty, score_only=1)
+    score = pairwise2.align.localxs(primer2, primer1, -2 * gap_penalty, -1 * gap_penalty, score_only=1)
     if isinstance(score, float):
 	return len(primer1) - score
     else:
@@ -523,13 +515,6 @@ def check_primers(primer_sequence, block_info, bases, pos, primerthresh, gap_pen
     reverse_score = primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region), gap_penalty)
     return [forward_score, reverse_score]
 
-def printable_base(bases):
-    # correct plurality
-    if bases == 1:
-	return "base"
-    else:
-	return "bases"
-
 def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2, id_info):
     coverage_info = []
     total_scores = {}
@@ -544,7 +529,6 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         block_vars = {}
         num_pairs = 0
 	num_discards = 0
-	# num_primer_vars = 0
 	forward_scores = {}
 	reverse_scores = {}
 	# use 0 based coordinates to lookup reads from bam file
@@ -557,6 +541,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                 read1, read2 = reads
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
+		
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
