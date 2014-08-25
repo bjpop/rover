@@ -53,9 +53,11 @@ def parse_args():
     parser.add_argument('--primercheck', metavar='FILE', type=str, 
 	help='Expected base sequences and locations of primers as determined by a primer generating program.')
     parser.add_argument('--primerthresh', metavar='N', type=int, default=default_primer_threshold, 
-	help='Maximum allowed variance in base sequence of primers.')
+	help='Maximum allowed variance in base sequence of primers.'
+	     'Defaults to {}.'.format(default_primer_threshold))
     parser.add_argument('--gap_penalty', metavar='N', type=float, default=default_gap_penalty,
-	help='Score deduction on gap in alignment.')
+	help='Score deduction on gap in alignment.'
+	     'Defaults to {}.'.format(default_gap_penalty))
     parser.add_argument('--id_info', type=str, 
 	help='File containing rs ID information')
     parser.add_argument('--coverdir',
@@ -476,44 +478,40 @@ def reverse_complement(sequence):
     rc = "".join([b for b in rc_bases])
     return rc[::-1]
 
-def possible_primer(primer_sequence, block_info, bases, pos, direction, primerthresh, fcorrection, rcorrection):
+def possible_primer(primer_sequence, block_info, bases, pos, direction):
     # generates possible primers given the primer sequence and knowledge about where the primer should be located
-    forward_primer_end = int(block_info[1]) - pos
-    reverse_primer_start = int(block_info[2]) - pos + 1
     forward_primer_length = len(primer_sequence[block_info[3]])
     reverse_primer_length = len(primer_sequence[block_info[4]])
 
     if direction == -1:
 	primer_bases = []
-	for primer_base in bases[:forward_primer_end + fcorrection]:
+	for primer_base in bases[:forward_primer_length]:
 	    primer_bases.append(primer_base.base)
 	return "".join([b for b in primer_bases])
 
     if direction == 1:
 	primer_bases = []
-	for primer_base in bases[reverse_primer_start - rcorrection:]:
+	for primer_base in bases[-1 * reverse_primer_length:]:
 	    primer_bases.append(primer_base.base)
 	return "".join([b for b in primer_bases])
 
 def primer_diff(primer1, primer2, gap_penalty):
     # compares two primers (in string representation)
-    score = pairwise2.align.localxs(primer2, primer1, -2 * gap_penalty, -1 * gap_penalty, score_only=1)
+    score = pairwise2.align.globalxs(primer2, primer1, -2 * gap_penalty, -1 * gap_penalty, score_only=1)
     if isinstance(score, float):
 	return len(primer1) - score
     else:
 	return len(primer1)
 
-def check_primers(primer_sequence, block_info, bases, pos, primerthresh, gap_penalty, fcorrection, rcorrection):
-    # checks if the primer sequence in the read is what we expect it to be, and return scores for the forward and reverse
-    # primers indicating how far away they are from the expected
+def check_forward_primer(primer_sequence, block_info, bases, pos, gap_penalty):
     ref_primer_forward = primer_sequence[block_info[3]]
+    forward_primer_region = possible_primer(primer_sequence, block_info, bases, pos, -1)
+    return primer_diff(ref_primer_forward, forward_primer_region, gap_penalty)
+
+def check_reverse_primer(primer_sequence, block_info, bases, pos, gap_penalty):
     ref_primer_reverse = primer_sequence[block_info[4]]
-    forward_primer_region = possible_primer(primer_sequence, block_info, bases, pos, -1, primerthresh, fcorrection, rcorrection)
-    reverse_primer_region = possible_primer(primer_sequence, block_info, bases, pos, 1, primerthresh, fcorrection, rcorrection)
-    
-    forward_score = primer_diff(ref_primer_forward, forward_primer_region, gap_penalty)
-    reverse_score = primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region), gap_penalty)
-    return [forward_score, reverse_score]
+    reverse_primer_region = possible_primer(primer_sequence, block_info, bases, pos, 1)
+    return primer_diff(ref_primer_reverse, reverse_complement(reverse_primer_region), gap_penalty)
 
 def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2, id_info):
     coverage_info = []
@@ -537,11 +535,11 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
             if len(reads) == 1:
                 logging.warning("read {} with no pair".format(read_name))
             elif len(reads) == 2:
+		discard = 0
 		num_pairs += 1
                 read1, read2 = reads
                 read1_bases = make_base_seq(read1.qname, read1.query, read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, read2.qqual)
-		
 		variants1 = read_variants(args, read1.qname, chr, read1.pos + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chr, read2.pos + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
@@ -549,49 +547,43 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 
                 # find the variants each read in the pair share in common
                 same_variants = set_variants1.intersection(set_variants2)
-		fcorrection1, rcorrection1, fcorrection2, rcorrection2 = 0, 0, 0, 0
+
 		if args.primercheck:
-		    for var in set_variants1:
-		        # correction for when there's an insertion prior to start of block
-			# may need to look at more bases to find the primer sequence we are expecting
-			if var.pos <= start and isinstance(var, Insertion):
-			    fcorrection1 = len(var.alt()) - 1
-			# correction for when there's a deletion prior to the expected start of the reverse primer
-			# primer sequence in the mapped alignment may start earlier than we expect
-			if var.pos <= end and isinstance(var, Deletion):
-			    rcorrection1 = len(var.ref()) - 1
-		    for var in set_variants2:
-			if var.pos <= start and isinstance(var, Insertion):
-			    fcorrection2 = len(var.alt()) - 1
-			if var.pos <= end and isinstance(var, Deletion):
-			    rcorrection2 = len(var.ref()) - 1
-		if args.primercheck:
-		    read1_check = check_primers(primer_sequence, block_info, read1_bases, read1.pos + 1, args.primerthresh, args.gap_penalty, \
-		fcorrection1, rcorrection1)
-		    read2_check = check_primers(primer_sequence, block_info, read2_bases, read2.pos + 1, args.primerthresh, args.gap_penalty, \
-		fcorrection2, rcorrection2)
+		    # the read we want for the forward primer is usually the second read, but this is not always the case
+		    # so we check the starting position of the second read to see if it matches the expected primer start position
+		    if int(block_info[1]) - len(primer_sequence[block_info[3]]) == read2.pos + 1:
+			read1_check = check_reverse_primer(primer_sequence, block_info, read1_bases, read1.pos + 1, args.gap_penalty)
+			read2_check = check_forward_primer(primer_sequence, block_info, read2_bases, read2.pos + 1, args.gap_penalty)
+		    # if that didn't match, we also check the first read
+		    elif int(block_info[1]) - len(primer_sequence[block_info[3]]) == read1.pos + 1:
+			read1_check = check_forward_primer(primer_sequence, block_info, read1_bases, read1.pos + 1, args.gap_penalty)
+			read2_check = check_reverse_primer(primer_sequence, block_info, read2_bases, read2.pos + 1, args.gap_penalty)
+		    # if neither matched, we take the second read for the forward primer as the default
+		    else:
+			#discard = 1
+			read1_check = check_reverse_primer(primer_sequence, block_info, read1_bases, read1.pos + 1, args.gap_penalty)
+			read2_check = check_forward_primer(primer_sequence, block_info, read2_bases, read2.pos + 1, args.gap_penalty)
 		    
-		    # taking the worst case from the two reads
-		    # i.e. if one of the reads does not pass the primerthresh check, then both reads will be discarded
-		    forward_score = max(read1_check[0], read2_check[0])
-		    reverse_score = max(read1_check[1], read2_check[1])
-		    if forward_score in forward_scores:
-			forward_scores[forward_score] += 1
-		    else:
-			forward_scores[forward_score] = 1
-		    if forward_score in total_scores:
-			total_scores[forward_score] += 1
-		    else:
-			total_scores[forward_score] = 1
-		    if reverse_score in reverse_scores:
-			reverse_scores[reverse_score] += 1
-		    else:
-			reverse_scores[reverse_score] = 1
-		    if reverse_score in total_scores:
-			total_scores[reverse_score] += 1
-		    else:
-			total_scores[reverse_score] = 1
-		discard = 0
+		    if discard == 0:
+			forward_score = read2_check
+			reverse_score = read1_check
+
+			if forward_score in forward_scores:
+			    forward_scores[forward_score] += 1
+			else:
+			    forward_scores[forward_score] = 1
+		    	if forward_score in total_scores:
+			    total_scores[forward_score] += 1
+		    	else:
+			    total_scores[forward_score] = 1
+		    	if reverse_score in reverse_scores:
+			    reverse_scores[reverse_score] += 1
+		    	else:
+			    reverse_scores[reverse_score] = 1
+		    	if reverse_score in total_scores:
+			    total_scores[reverse_score] += 1
+		    	else:
+			    total_scores[reverse_score] = 1
 		if args.primercheck:
 		    if forward_score > args.primerthresh or reverse_score > args.primerthresh:
 			discard = 1
