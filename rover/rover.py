@@ -19,7 +19,7 @@ default_minimum_read_overlap_block = 0.9
 default_proportion_threshold = 0.05
 default_absolute_threshold = 2
 default_primer_threshold = 5
-default_gap_penalty = 1.0
+default_gap_penalty = 2.0
 
 def parse_args():
     "Consider mapped reads to amplicon sites"
@@ -143,10 +143,10 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
                 # check if the read base is above the minimum quality score
                 if (args.qualthresh is None) or (seq_base_qual.qual >= args.qualthresh):
                     seq_base = seq_base_qual.base
-                    result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, None))
+                    result.append(SNV(chr, pos, next_md.ref_base, seq_base, '.', None))
 		else:
 		    seq_base = seq_base_qual.base
-		    result.append(SNV(chr, pos, next_md.ref_base, seq_base, seq_base_qual.qual, ";qlt"))
+		    result.append(SNV(chr, pos, next_md.ref_base, seq_base, '.', ";qlt"))
                 cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
                 context = next_md.ref_base
 		md = md[1:]
@@ -165,9 +165,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
             if (args.qualthresh is None) or all([b.qual >= args.qualthresh for b in seq_bases_quals]):
-                result.append(Insertion(chr, pos, seq_bases, '-', None, context))
+                result.append(Insertion(chr, pos, seq_bases, '.', None, context))
 	    else:
-	        result.append(Insertion(chr, pos, seq_bases, '-', ";qlt", context))
+	        result.append(Insertion(chr, pos, seq_bases, '.', ";qlt", context))
 	    cigar = cigar[1:]
             seq_index += cigar_segment_extent
 	    # pos does not change
@@ -176,9 +176,9 @@ def read_variants(args, name, chr, pos, aligned_bases, cigar, md):
             if isinstance(next_md, MD_deletion):
                 seq_base = aligned_bases[seq_index]
 		if seq_base.qual >= args.qualthresh:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, '-', None, context))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, '.', None, context))
                 else:
-		    result.append(Deletion(chr, pos, next_md.ref_bases, '-', ";qlt", context))
+		    result.append(Deletion(chr, pos, next_md.ref_bases, '.', ";qlt", context))
 		context = next_md.ref_bases[-1]
 		md = md[1:]
                 cigar = cigar[1:]
@@ -276,7 +276,7 @@ class SNV(object):
     def position(self):
 	return self.pos
     def quality(self):
-	return '.'
+	return self.qual
 
 class Insertion(object):
     # bases are represented just as DNA strings
@@ -319,7 +319,7 @@ class Insertion(object):
     def position(self):
 	return self.pos - 1
     def quality(self):
-	return '.'
+	return self.qual
 
 class Deletion(object):
     # bases are represented just as DNA strings
@@ -362,7 +362,7 @@ class Deletion(object):
     def position(self):
 	return self.pos - 1
     def quality(self):
-	return '.'
+	return self.qual
 
 class MD_match(object):
     def __init__(self, size):
@@ -479,7 +479,7 @@ def reverse_complement(sequence):
     return rc[::-1]
 
 def possible_primer(primer_sequence, block_info, bases, pos, direction):
-    # generates possible primers given the primer sequence and knowledge about where the primer should be located
+    # generates the sequence of bases at the location where we expect the primer to be located
     forward_primer_length = len(primer_sequence[block_info[3]])
     reverse_primer_length = len(primer_sequence[block_info[4]])
 
@@ -496,7 +496,12 @@ def possible_primer(primer_sequence, block_info, bases, pos, direction):
 	return "".join([b for b in primer_bases])
 
 def primer_diff(primer1, primer2, gap_penalty):
-    # compares two primers (in string representation)
+    # compares two primers (in string representation), and assigns a score using the global alignment
+    # algorithm from the pairwise2 module
+
+    # Score is calculated as follows: 1 point for a match, 0 points for a mismatch, -2 * gap_penalty for
+    # opening a gap and -1 * gap_penalty for extending a gap. Returned as the length of the primer 
+    # minus the score, which means a return value of 0 corresponds to an exact match. 
     score = pairwise2.align.globalxs(primer2, primer1, -2 * gap_penalty, -1 * gap_penalty, score_only=1)
     if isinstance(score, float):
 	return len(primer1) - score
@@ -516,6 +521,7 @@ def check_reverse_primer(primer_sequence, block_info, bases, pos, gap_penalty):
 def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2, id_info):
     coverage_info = []
     total_scores = {}
+    num_exceptions = 0
     data.write('\t'.join(["Primer name", "0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0", "9.0"]))
     data.write('\n')
     for block_info in block_coords:
@@ -527,6 +533,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
         block_vars = {}
         num_pairs = 0
 	num_discards = 0
+	num_unexpected = 0
 	forward_scores = {}
 	reverse_scores = {}
 	# use 0 based coordinates to lookup reads from bam file
@@ -551,16 +558,21 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 		if args.primercheck:
 		    # the read we want for the forward primer is usually the second read, but this is not always the case
 		    # so we check the starting position of the second read to see if it matches the expected primer start position
-		    if int(block_info[1]) - len(primer_sequence[block_info[3]]) == read2.pos + 1:
+		    if start - len(primer_sequence[block_info[3]]) == read2.pos + 1:
 			read1_check = check_reverse_primer(primer_sequence, block_info, read1_bases, read1.pos + 1, args.gap_penalty)
 			read2_check = check_forward_primer(primer_sequence, block_info, read2_bases, read2.pos + 1, args.gap_penalty)
 		    # if that didn't match, we also check the first read
-		    elif int(block_info[1]) - len(primer_sequence[block_info[3]]) == read1.pos + 1:
+		    elif start - len(primer_sequence[block_info[3]]) == read1.pos + 1:
 			read1_check = check_forward_primer(primer_sequence, block_info, read1_bases, read1.pos + 1, args.gap_penalty)
 			read2_check = check_reverse_primer(primer_sequence, block_info, read2_bases, read2.pos + 1, args.gap_penalty)
 		    # if neither matched, we take the second read for the forward primer as the default
 		    else:
-			#discard = 1
+			logging.warning("read {} discarded due read beginning at unexpected position".format(read_name))
+			discard = 2
+			num_unexpected += 1
+			num_pairs -= 1
+			#num_exceptions += 1
+			#print num_exceptions, block_info[3], block_info[1], read1.qname
 			read1_check = check_reverse_primer(primer_sequence, block_info, read1_bases, read1.pos + 1, args.gap_penalty)
 			read2_check = check_forward_primer(primer_sequence, block_info, read2_bases, read2.pos + 1, args.gap_penalty)
 		    
@@ -584,6 +596,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 			    total_scores[reverse_score] += 1
 		    	else:
 			    total_scores[reverse_score] = 1
+		
 		if args.primercheck:
 		    if forward_score > args.primerthresh or reverse_score > args.primerthresh:
 			discard = 1
@@ -597,7 +610,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
                                 block_vars[var] += 1
                             else:
                                 block_vars[var] = 1
-		else:
+		elif discard == 1:
 		    # one of the reads had a primer sequence which was too different from what we expected (based on argument primerthresh)
 		    # both reads were discarded as a result
 		    logging.warning("read {} discarded due to greater than acceptable variance in primer sequence".format(read_name))
@@ -606,8 +619,11 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 	    else:
                 logging.warning("read {} with more than 2".format(read_name))
 	if args.primercheck:
-	    logging.warning("number of reads discarded due to unexpected primer sequence: {}".format(num_discards * 2))
-        logging.info("number of read pairs in block: {}".format(num_pairs))
+	    logging.warning("number of read pairs discarded due to unexpected start position: {}".format(num_unexpected))
+	    logging.warning("number of read pairs discarded due to unexpected primer sequence: {}".format(num_discards))
+	    logging.info("number of acceptable read pairs remaining in block: {}".format(num_pairs))
+	else:
+	    logging.info("number of read pairs in block: {}".format(num_pairs))
         logging.info("number of variants found in block: {}".format(len(block_vars)))
 
 	if args.primercheck:
@@ -645,7 +661,10 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 	    if proportion < args.proportionthresh:
 		var.filter = ''.join([nts(var.filter), ";pt"])
 	    write_variant(kept_variants_file, var, id_info, args)
-        coverage_info.append((chr, start, end, num_pairs))
+        if args.primercheck:
+	    coverage_info.append((chr, start, end, num_pairs, num_discards + num_unexpected))
+	else:
+	    coverage_info.append((chr, start, end, num_pairs))
     coverage_filename = sample + '.coverage'
     
     if args.primercheck:
@@ -658,9 +677,14 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
     if args.coverdir is not None:
         coverage_filename = os.path.join(args.coverdir, coverage_filename)
     with open(coverage_filename, 'w') as coverage_file:
-        coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\n')
-        for chr, start, end, num_pairs in sorted(coverage_info, key=itemgetter(3)):
-            coverage_file.write('{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs))
+        if args.primercheck:
+	    coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\tnum_pairs_discarded\n')
+            for chr, start, end, num_pairs, num_discards in sorted(coverage_info, key=itemgetter(3)):
+                coverage_file.write('{}\t{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs, num_discards))
+	else:
+	    coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\n')
+	    for chr, start, end, num_pairs in sorted(coverage_info, key=itemgetter(3)):
+		coverage_file.write('{}\t{}\t{}\t{}\n'.format(chr, start, end, num_pairs))
 
 def write_metadata(args, file):
     file.write("##fileformat=VCFv4.2" + '\n')
