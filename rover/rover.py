@@ -521,7 +521,6 @@ def check_reverse_primer(primer_sequence, block_info, bases, pos, gap_penalty):
 def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_sequence, data, data2, id_info):
     coverage_info = []
     total_scores = {}
-    num_exceptions = 0
     data.write('\t'.join(["Primer name", "0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0", "9.0"]))
     data.write('\n')
     for block_info in block_coords:
@@ -571,11 +570,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, primer_s
 			discard = 2
 			num_unexpected += 1
 			num_pairs -= 1
-			#num_exceptions += 1
-			#print num_exceptions, block_info[3], block_info[1], read1.qname
-			read1_check = check_reverse_primer(primer_sequence, block_info, read1_bases, read1.pos + 1, args.gap_penalty)
-			read2_check = check_forward_primer(primer_sequence, block_info, read2_bases, read2.pos + 1, args.gap_penalty)
-		    
+
 		    if discard == 0:
 			forward_score = read2_check
 			reverse_score = read1_check
