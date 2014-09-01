@@ -595,9 +595,9 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
                 read2_bases = make_base_seq(read2.qname, read2.query, \
                     read2.qqual)
                 variants1 = read_variants(args, read1.qname, chrsm, read1.pos \
-                    + 1, read1_bases, read1.cigar, parse_md(get_md(read1), []))
+                    + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
                 variants2 = read_variants(args, read2.qname, chrsm, read2.pos \
-                    + 1, read2_bases, read2.cigar, parse_md(get_md(read2), []))
+                    + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
 
