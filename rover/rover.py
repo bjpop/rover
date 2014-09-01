@@ -102,7 +102,7 @@ def lookup_reads(min_overlap, bam, chrsm, start_col, end_col):
         .format(overlapping_reads))
     return read_pairs
 
-def get_md(read):
+def get_MD(read):
     for tag, val in read.tags:
         if tag == 'MD':
             return val
