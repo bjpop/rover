@@ -118,8 +118,9 @@ def get_MD(read):
 #=   BAM_CEQUAL  7
 #X   BAM_CDIFF   8
 
-# find all the variants in a single read (SNVs, Insertions, Deletions)
+
 def read_variants(args, name, chrsm, pos, aligned_bases, cigar, md):
+    """ Find all the variants in a single read (SNVs, Insertions, Deletions)."""
     cigar_orig = cigar
     md_orig = md
     seq_index = 0
