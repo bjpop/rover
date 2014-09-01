@@ -573,7 +573,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
         chrsm, start, end = block_info[:3]
         start = int(start)
         end = int(end)
-        logging.info("Processing block chrsm: {}, start: {}, end: {}"\
+        logging.info("Processing block chr: {}, start: {}, end: {}"\
             .format(chrsm, start, end))
         block_vars = {}
         num_pairs = 0
@@ -697,23 +697,23 @@ primer sequence: {}".format(num_discards))
                 + num_unexpected))
         else:
             coverage_info.append((chrsm, start, end, num_pairs))
-    coverage_filename = sample + '.coverage'
 
     if args.primercheck:
         write_total_data(sample, total_scores, data2)
 
+    coverage_filename = sample + '.coverage'
     if args.coverdir is not None:
         coverage_filename = os.path.join(args.coverdir, coverage_filename)
     with open(coverage_filename, 'w') as coverage_file:
         if args.primercheck:
-            coverage_file.write('chrsm\tblock_start\tblock_end\tnum_pairs\t\
+            coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\t\
 num_pairs_discarded\n')
             for chrsm, start, end, num_pairs, num_discards in sorted(\
                 coverage_info, key=itemgetter(3)):
                 coverage_file.write('{}\t{}\t{}\t{}\t{}\n'.format(chrsm, \
                     start, end, num_pairs, num_discards))
         else:
-            coverage_file.write('chrsm\tblock_start\tblock_end\tnum_pairs\n')
+            coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\n')
             for chrsm, start, end, num_pairs in sorted(coverage_info, \
                 key=itemgetter(3)):
                 coverage_file.write('{}\t{}\t{}\t{}\n'.format(chrsm, start, \
@@ -771,6 +771,7 @@ def write_total_data(sample, total_scores, data2):
         if mismatch < 10:
             data2.write(str(mismatch) + '\t' + "{:.2%}"\
                 .format(total_scores[mismatch]/float(total2)) + '\n')
+    data2.write('\n')
 
 def write_metadata(args, vcf_file):
     """ Write the opening lines of metadata to the vcf file."""
@@ -823,7 +824,6 @@ def process_bams(args):
         for primer in primer_info:
             primer_sequence[primer[0]] = primer[1]
     with open(args.out, "w") as kept_variants_file:
-        graph_data = open("data.dat", "w")
         graph_total_data = open("data2.dat", "w")
         write_metadata(args, kept_variants_file)
         if args.id_info:
@@ -837,11 +837,15 @@ def process_bams(args):
             else:
                 exit('Cannot deduce sample name from bam filename {}'\
                     .format(bam_filename))
-            with pysam.Samfile(bam_filename, "rb") as bam:
-                logging.info("Processing bam file {}".format(bam_filename))
-                process_blocks(args, kept_variants_file, bam, sample, \
-                    block_coords, primer_sequence, graph_data, \
-                    graph_total_data, vcf_reader)
+            block_data_filename = sample + ".dat"
+            block_data_filename = os.path.join("primer_data", \
+                block_data_filename)
+            with open(block_data_filename, 'w') as graph_data:
+                with pysam.Samfile(bam_filename, "rb") as bam:
+                    logging.info("Processing bam file {}".format(bam_filename))
+                    process_blocks(args, kept_variants_file, bam, sample, \
+                        block_coords, primer_sequence, graph_data, \
+                        graph_total_data, vcf_reader)
 
 def main():
     args = parse_args()
