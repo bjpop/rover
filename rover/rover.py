@@ -548,19 +548,18 @@ def reverse_complement(sequence):
     rc_seq = "".join([b for b in rc_bases])
     return rc_seq[::-1]
 
-def possible_primer(primer_sequence, block_info, bases, direction):
+def possible_primer(primer_sequence, block_info, bases, forward):
     """ Generates the sequence of bases at the location where we expect
     the primer to be located"""
     forward_primer_length = len(primer_sequence[block_info[3]])
     reverse_primer_length = len(primer_sequence[block_info[4]])
 
-    if direction == -1:
+    if forward == 1:
         primer_bases = []
         for primer_base in bases[:forward_primer_length]:
             primer_bases.append(primer_base.base)
         return "".join([b for b in primer_bases])
-
-    if direction == 1:
+    else:
         primer_bases = []
         for primer_base in bases[-1 * reverse_primer_length:]:
             primer_bases.append(primer_base.base)
@@ -585,14 +584,14 @@ def check_forward_primer(primer_sequence, block_info, bases, gap_penalty):
     """ Returns the score for the forward primer."""
     ref_primer_forward = primer_sequence[block_info[3]]
     forward_primer_region = possible_primer(primer_sequence, block_info, \
-        bases, -1)
+        bases, 1)
     return primer_diff(ref_primer_forward, forward_primer_region, gap_penalty)
 
 def check_reverse_primer(primer_sequence, block_info, bases, gap_penalty):
     """ Returns the score for the reverse primer."""
     ref_primer_reverse = primer_sequence[block_info[4]]
     reverse_primer_region = possible_primer(primer_sequence, block_info, \
-        bases, 1)
+        bases, 0)
     return primer_diff(ref_primer_reverse, reverse_complement\
         (reverse_primer_region), gap_penalty)
 
@@ -613,12 +612,8 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
         end = int(end)
         logging.info("Processing block chr: {}, start: {}, end: {}"\
             .format(chrsm, start, end))
-        block_vars = {}
-        num_pairs = 0
-        num_discards = 0
-        num_unexpected = 0
-        forward_scores = {}
-        reverse_scores = {}
+        block_vars, forward_scores, reverse_scores = {}, {}, {}
+        num_pairs, num_discards, num_unexpected = 0, 0, 0
         # use 0 based coordinates to lookup reads from bam file
         read_pairs = lookup_reads(args.overlap, bam, chrsm, start - 1, end - 1)
         for read_name, reads in read_pairs.items():
