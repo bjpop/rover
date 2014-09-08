@@ -4,24 +4,24 @@
 variant-calling software for PCR-based massively parallel sequencing datasets"""
 
 from argparse import ArgumentParser
+from Bio import pairwise2
+from itertools import (izip, chain, repeat)
+from operator import itemgetter
+from version import rover_version
+import csv
 import datetime
 import logging
-import sys
+import os
 import pysam
 import re
-import os
+import sys
 import vcf
-from operator import itemgetter
-import csv
-from version import rover_version
-from itertools import (izip, chain, repeat)
-from Bio import pairwise2
 
 # proportion of block which must be overlapped by read
 DEFAULT_MINIMUM_READ_OVERLAP_BLOCK = 0.9
 DEFAULT_PROPORTION_THRESHOLD = 0.05
 DEFAULT_ABSOLUTE_THRESHOLD = 2
-DEFAULT_PRIMER_THRESHOLD = 5
+DEFAULT_PRIMER_THRESHOLD = 5.0
 DEFAULT_GAP_PENALTY = 2.0
 
 def parse_args():
@@ -75,14 +75,19 @@ def parse_args():
     return parser.parse_args()
 
 def get_block_coords(primers_file):
+    """ Retrieves the coordinates of the start and end of each block, and
+    return as a list."""
     with open(primers_file) as primers:
         return list(csv.reader(primers, delimiter='\t'))
 
 def get_primer_sequence(primers_coords_file):
+    """ Retrieves the sequences of bases for each primer, and return as a
+    list."""
     with open(primers_coords_file) as primer_coords:
         return list(csv.reader(primer_coords, delimiter='\t'))
 
 def lookup_reads(min_overlap, bam, chrsm, start_col, end_col):
+    """ Retrieve the read pairs for one block from a BAM file."""
     total_reads = 0
     overlapping_reads = 0
     read_pairs = {}
@@ -102,7 +107,8 @@ def lookup_reads(min_overlap, bam, chrsm, start_col, end_col):
         .format(overlapping_reads))
     return read_pairs
 
-def get_MD(read):
+def get_md(read):
+    """ Retrieves the MD string from a read."""
     for tag, val in read.tags:
         if tag == 'MD':
             return val
@@ -119,24 +125,24 @@ def get_MD(read):
 #X   BAM_CDIFF   8
 
 
-def read_variants(args, name, chrsm, pos, aligned_bases, cigar, md):
+def read_variants(args, chrsm, pos, aligned_bases, cigar, md_string):
     """ Find all the variants in a single read (SNVs, Insertions, Deletions)."""
     cigar_orig = cigar
-    md_orig = md
+    md_orig = md_string
     seq_index = 0
     result = []
     context = None
 
-    while cigar and md:
+    while cigar and md_string:
         cigar_code, cigar_segment_extent = cigar[0]
-        next_md = md[0]
+        next_md = md_string[0]
         if cigar_code == 0:
-            if isinstance(next_md, MD_match):
+            if isinstance(next_md, MdMatch):
                 # MD match
                 if next_md.size >= cigar_segment_extent:
                     next_md.size -= cigar_segment_extent
                     if next_md.size == 0:
-                        md = md[1:]
+                        md_string = md_string[1:]
                     context = aligned_bases[seq_index + \
                     cigar_segment_extent - 1].base
                     cigar = cigar[1:]
@@ -147,10 +153,10 @@ def read_variants(args, name, chrsm, pos, aligned_bases, cigar, md):
                     cigar = [(cigar_code, cigar_segment_extent - \
                         next_md.size)] + cigar[1:]
                     context = aligned_bases[seq_index + next_md.size - 1].base
-                    md = md[1:]
+                    md_string = md_string[1:]
                     pos += next_md.size
                     seq_index += next_md.size
-            elif isinstance(next_md, MD_mismatch):
+            elif isinstance(next_md, MdMismatch):
                 # MD mismatch
                 seq_base_qual = aligned_bases[seq_index]
                 # check if the read base is above the minimum quality score
@@ -165,10 +171,10 @@ def read_variants(args, name, chrsm, pos, aligned_bases, cigar, md):
                         '.', ";qlt"))
                 cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
                 context = next_md.ref_base
-                md = md[1:]
+                md_string = md_string[1:]
                 pos += 1
                 seq_index += 1
-            elif isinstance(next_md, MD_deletion):
+            elif isinstance(next_md, MdDeletion):
                 # MD deletion, should not happen in Cigar match
                 logging.info("MD del in cigar match {} {}".format(md_orig, \
                     cigar_orig))
@@ -194,7 +200,7 @@ def read_variants(args, name, chrsm, pos, aligned_bases, cigar, md):
             # pos does not change
         elif cigar_code == 2:
             # Deletion
-            if isinstance(next_md, MD_deletion):
+            if isinstance(next_md, MdDeletion):
                 seq_base = aligned_bases[seq_index]
                 if seq_base.qual >= args.qualthresh:
                     result.append(Deletion(chrsm, pos, next_md.ref_bases, '.', \
@@ -203,37 +209,37 @@ def read_variants(args, name, chrsm, pos, aligned_bases, cigar, md):
                     result.append(Deletion(chrsm, pos, next_md.ref_bases, '.', \
                         ";qlt", context))
                 context = next_md.ref_bases[-1]
-                md = md[1:]
+                md_string = md_string[1:]
                 cigar = cigar[1:]
                 pos += cigar_segment_extent
                 # seq_index does not change
             else:
-                logging.info("Non del MD in Del Cigar".format(md_orig, \
-                    cigar_orig))
+                logging.info("Non del MD in Del Cigar, md:{0}, cigar:{1}"\
+                    .format(md_orig, cigar_orig))
                 exit()
         elif cigar_code == 4:
             # soft clipping
             context = 'S'
-            md = md[1:]
+            md_string = md_string[1:]
             cigar = cigar[1:]
             seq_index += cigar_segment_extent
         elif cigar_code == 5:
             # hard clipping
             context = 'H'
-            md = md[1:]
+            md_string = md_string[1:]
             cigar = cigar[1:]
         else:
             logging.info("Unexpected cigar code {}".format(cigar_orig))
             exit()
     return result
 
-# SAM/BAM files store the quality score of a base as a byte (ascii character)
-# in "Qual plus 33 format". So we subtract off 33 from the ascii code
-# to get the actual score
-# See: http://samtools.sourceforge.net/SAMv1.pdf
-# ASCII codes 32 an above are the so-called printable characters, but 32
-# is a whitespace character, so SAM uses 33 and above.
 def ascii_to_phred(ascii):
+    """ SAM/BAM files store the quality score of a base as a byte (ascii
+    character) in "Qual plus 33 format". So we subtract off 33 from the ascii
+    code to get the actual score.
+    See: http://samtools.sourceforge.net/SAMv1.pdf
+    ASCII codes 32 an above are the so-called printable characters, but 32
+    is a whitespace character, so SAM uses 33 and above."""
     return ord(ascii) - 33
 
 def make_base_seq(name, bases, qualities):
@@ -258,6 +264,7 @@ class Base(object):
         self.base = base # a string
         self.qual = qual # an int
     def as_tuple(self):
+        """ Return the base and quality score of the base as a tuple."""
         return (self.base, self.qual)
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
@@ -269,7 +276,7 @@ class Base(object):
         return hash(self.as_tuple)
 
 class SNV(object):
-    # bases are represented just as DNA strings
+    """ Single nucleotide variant. Bases are represented as DNA strings."""
     def __init__(self, chrsm, pos, ref_base, seq_base, qual, filter_reason):
         self.chrsm = chrsm
         self.pos = pos
@@ -284,27 +291,34 @@ class SNV(object):
     def __repr__(self):
         return str(self)
     def as_tuple(self):
+        """ Return information about the SNV as a 4-tuple."""
         return (self.chrsm, self.pos, self.ref_base, self.seq_base)
     def __hash__(self):
         return hash(self.as_tuple())
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
+        """ REF base."""
         return self.ref_base
     def alt(self):
+        """ ALT base."""
         return self.seq_base
     def fil(self):
+        """ Return "PASS" if the SNV is not filtered, or the reason for
+        for being discarded otherwise."""
         if self.filter_reason is None:
             return "PASS"
         else:
             return self.filter_reason[1:]
     def position(self):
+        """ SNV POS."""
         return self.pos
     def quality(self):
+        """ Base quality score."""
         return self.qual
 
 class Insertion(object):
-    # bases are represented just as DNA strings
+    """ Insertion. Bases are represented as DNA strings."""
     def __init__(self, chrsm, pos, inserted_bases, qual, filter_reason, \
         context):
         self.chrsm = chrsm
@@ -328,27 +342,34 @@ class Insertion(object):
     def __repr__(self):
         return str(self)
     def as_tuple(self):
+        """ Return information about the insertion as a 3-tuple."""
         return (self.chrsm, self.pos, self.inserted_bases)
     def __hash__(self):
         return hash(self.as_tuple())
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
+        """ REF base."""
         return self.context
     def alt(self):
+        """ ALT (inserted) bases."""
         return self.context + self.inserted_bases
     def fil(self):
+        """ Return "PASS" if the SNV is not filtered, or the reason for
+        for being discarded otherwise."""
         if self.filter_reason is None:
             return "PASS"
         else:
             return self.filter_reason[1:]
     def position(self):
+        """ Insertion POS."""
         return self.pos - 1
     def quality(self):
+        """ Insertion quality score."""
         return self.qual
 
 class Deletion(object):
-    # bases are represented just as DNA strings
+    """ Deletion. Bases are represented as DNA strings."""
     def __init__(self, chrsm, pos, deleted_bases, qual, filter_reason, context):
         self.chrsm = chrsm
         self.pos = pos
@@ -371,26 +392,34 @@ class Deletion(object):
     def __repr__(self):
         return str(self)
     def as_tuple(self):
+        """ Return infromation about the deletion as a 3-tuple."""
         return (self.chrsm, self.pos, self.deleted_bases)
     def __hash__(self):
         return hash(self.as_tuple())
     def __eq__(self, other):
         return self.as_tuple() == other.as_tuple()
     def ref(self):
+        """ REF (deleted) bases."""
         return self.context + self.deleted_bases
     def alt(self):
+        """ ALT base."""
         return self.context
     def fil(self):
+        """ Return "PASS" if the SNV is not filtered, or the reason for
+        for being discarded otherwise."""
         if self.filter_reason is None:
             return "PASS"
         else:
             return self.filter_reason[1:]
     def position(self):
+        """ Deletion POS."""
         return self.pos - 1
     def quality(self):
+        """ Deletion quality score."""
         return self.qual
 
-class MD_match(object):
+class MdMatch(object):
+    """ An element of the md string corresponding to a match."""
     def __init__(self, size):
         self.size = size
     def __str__(self):
@@ -398,7 +427,8 @@ class MD_match(object):
     def __repr__(self):
         return self.__str__()
 
-class MD_mismatch(object):
+class MdMismatch(object):
+    """ An element of the md string corresponding to a mismatch."""
     def __init__(self, ref_base):
         self.ref_base = ref_base
     def __str__(self):
@@ -406,7 +436,8 @@ class MD_mismatch(object):
     def __repr__(self):
         return self.__str__()
 
-class MD_deletion(object):
+class MdDeletion(object):
+    """ An element of the md string corresponding to a deletion."""
     def __init__(self, ref_bases):
         self.ref_bases = ref_bases
     def __str__(self):
@@ -415,36 +446,39 @@ class MD_deletion(object):
         return self.__str__()
 
 # [0-9]+(([A-Z]|\^[A-Z]+)[0-9]+)*
-def parse_md(md, result):
-    if md:
-        number_match = re.match('([0-9]+)(.*)', md)
+def parse_md(md_string, result):
+    """ Read one element of the md string."""
+    if md_string:
+        number_match = re.match('([0-9]+)(.*)', md_string)
         if number_match is not None:
             number_groups = number_match.groups()
             number = int(number_groups[0])
-            md = number_groups[1]
-            return parse_md_snv(md, result + [MD_match(number)])
+            md_string = number_groups[1]
+            return parse_md_snv(md_string, result + [MdMatch(number)])
     return result
 
-def parse_md_snv(md, result):
-    if md:
-        snv_match = re.match('([A-Z])(.*)', md)
+def parse_md_snv(md_string, result):
+    """ Read a single nucleotide variant from the md string."""
+    if md_string:
+        snv_match = re.match('([A-Z])(.*)', md_string)
         if snv_match is not None:
             snv_groups = snv_match.groups()
             ref_base = snv_groups[0]
-            md = snv_groups[1]
-            return parse_md(md, result + [MD_mismatch(ref_base)])
+            md_string = snv_groups[1]
+            return parse_md(md_string, result + [MdMismatch(ref_base)])
         else:
-            return parse_md_del(md, result)
+            return parse_md_del(md_string, result)
     return result
 
-def parse_md_del(md, result):
-    if md:
-        del_match = re.match('(\^[A-Z]+)(.*)', md)
+def parse_md_del(md_string, result):
+    """ Read a deletion from the md string."""
+    if md_string:
+        del_match = re.match(r'(\^[A-Z]+)(.*)', md_string)
         if del_match is not None:
             del_groups = del_match.groups()
             ref_bases = del_groups[0][1:]
-            md = del_groups[1]
-            return parse_md(md, result + [MD_deletion(ref_bases)])
+            md_string = del_groups[1]
+            return parse_md(md_string, result + [MdDeletion(ref_bases)])
     return result
 
 def proportion_overlap(block_start, block_end, read):
@@ -564,6 +598,9 @@ def check_reverse_primer(primer_sequence, block_info, bases, gap_penalty):
 
 def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
     primer_sequence, data, data2, id_info):
+    """ Find the variants present in each block as consistent with the
+    parameters supplied, and write them to the vcf file, while also writing
+    information to the log file and coverage files."""
     coverage_info = []
     total_scores = {}
     data.write('\t'.join(["Primer name", "0.0", "1.0", "2.0", "3.0", "4.0", \
@@ -595,10 +632,10 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
                     read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, \
                     read2.qqual)
-                variants1 = read_variants(args, read1.qname, chrsm, read1.pos \
-                    + 1, read1_bases, read1.cigar, parse_md(get_MD(read1), []))
-                variants2 = read_variants(args, read2.qname, chrsm, read2.pos \
-                    + 1, read2_bases, read2.cigar, parse_md(get_MD(read2), []))
+                variants1 = read_variants(args, chrsm, read1.pos \
+                    + 1, read1_bases, read1.cigar, parse_md(get_md(read1), []))
+                variants2 = read_variants(args, chrsm, read2.pos \
+                    + 1, read2_bases, read2.cigar, parse_md(get_md(read2), []))
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
 
@@ -636,10 +673,8 @@ start position".format(read_name))
                     if discard == 0:
                         forward_score = forward_check
                         reverse_score = reverse_check
-
                         scores = record_scores(forward_score, reverse_score, \
                             forward_scores, reverse_scores, total_scores)
-
                         forward_scores, reverse_scores, total_scores = \
                         scores[0], scores[1], scores[2]
 
@@ -706,19 +741,23 @@ primer sequence: {}".format(num_discards))
     if args.coverdir is not None:
         coverage_filename = os.path.join(args.coverdir, coverage_filename)
     with open(coverage_filename, 'w') as coverage_file:
-        if args.primercheck:
-            coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\t\
+        write_coverage_data(args, coverage_file, coverage_info)
+
+def write_coverage_data(args, coverage_file, coverage_info):
+    """ Write coverage information to the coverage files."""
+    if args.primercheck:
+        coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\t\
 num_pairs_discarded\n')
-            for chrsm, start, end, num_pairs, num_discards in sorted(\
-                coverage_info, key=itemgetter(3)):
-                coverage_file.write('{}\t{}\t{}\t{}\t{}\n'.format(chrsm, \
-                    start, end, num_pairs, num_discards))
-        else:
-            coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\n')
-            for chrsm, start, end, num_pairs in sorted(coverage_info, \
-                key=itemgetter(3)):
-                coverage_file.write('{}\t{}\t{}\t{}\n'.format(chrsm, start, \
-                    end, num_pairs))
+        for chrsm, start, end, num_pairs, num_discards in sorted(\
+            coverage_info, key=itemgetter(3)):
+            coverage_file.write('{}\t{}\t{}\t{}\t{}\n'.format(chrsm, \
+                start, end, num_pairs, num_discards))
+    else:
+        coverage_file.write('chr\tblock_start\tblock_end\tnum_pairs\n')
+        for chrsm, start, end, num_pairs in sorted(coverage_info, \
+            key=itemgetter(3)):
+            coverage_file.write('{}\t{}\t{}\t{}\n'.format(chrsm, start, \
+                end, num_pairs))
 
 def record_scores(forward_score, reverse_score, forward_scores, \
     reverse_scores, total_scores):
@@ -816,6 +855,8 @@ OUTPUT_HEADER = '\t'.join(["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", \
     "FILTER", "INFO"])
 
 def process_bams(args):
+    """ Read the sample name of each BAM file, and call process_blocks for each
+    one."""
     block_coords = get_block_coords(args.primers)
     primer_sequence = {}
     vcf_reader = 0
@@ -825,7 +866,7 @@ def process_bams(args):
         for primer in primer_info:
             primer_sequence[primer[0]] = primer[1]
     with open(args.out, "w") as kept_variants_file:
-        graph_total_data = open("data2.dat", "w")
+        graph_total_data = open("total.dat", "w")
         write_metadata(args, kept_variants_file)
         if args.id_info:
             vcf_reader = vcf.Reader(filename=args.id_info)
@@ -849,6 +890,8 @@ def process_bams(args):
                         graph_total_data, vcf_reader)
 
 def main():
+    """ Main function which parses the arguments provided and initialises
+    the log file. Then processes each BAM file."""
     args = parse_args()
     if args.log is None:
         logfile = sys.stdout

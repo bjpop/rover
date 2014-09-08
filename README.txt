@@ -3,10 +3,10 @@ Rover - ROVER-PCR Variant Caller: read-pair overlap considerate variant-calling
 software for PCR-based massively parallel sequencing datasets
 --------------------------------------------------------------------------------
 
-Version: 1.1.0
+Version: 1.2.1
 
-Authors: Bernard J Pope (2,3), Tú Nguyen-Dumont (1), Fleur Hammet (1) and
-         Daniel J Park (1)
+Authors: Bernard J Pope (2,3), Tú Nguyen-Dumont (1), Fleur Hammet (1), 
+         Daniel J Park (1) and Roger Li
 
          (1) Genetic Epidemiology Laboratory, Department of Pathology,
              The University of Melbourne.
@@ -31,8 +31,10 @@ Citation:
    DOI: 10.1186/1751-0473-9-3
    http://www.scfbm.org/content/9/1/3
 
-Requirements: Python 2.7, and the PySam library
-(http://code.google.com/p/pysam/).
+Requirements: Python 2.7, and the PySam, PyVCF and biopython libraries
+(http://code.google.com/p/pysam/)
+(https://pypi.python.org/pypi/PyVCF)
+(https://pypi.python.org/pypi/biopython)
 
 --------------------------------------------------------------------------------
 General description
@@ -49,17 +51,20 @@ compliant system (Linux, OS X).
 The software accepts a tab-delimited file (TSV) listing the coordinates of the
 target-specific primers used for targeted enrichment based on a specified
 genome-build. It also accepts aligned sequence files resulting from mapping
- to the same genome-build. ROVER-PCR Variant Caller identifies the amplicon
+to the same genome-build. ROVER-PCR Variant Caller identifies the amplicon
 a given read-pair represents and removes the primer sequences by using the
- mapping co-ordinates and primer co-ordinates. It considers completely
- overlapping read-pairs with respect to primer-intervening sequence. Only 
-when a variant is observed in both reads of a read-pair does the signal 
-contribute to a tally of read-pairs containing or not containing the variant.
-A user-defined threshold informs the minimum number of and proportion of 
-read-pairs a variant must be observed in for a ‘call’ to be made. ROVER-PCR 
-Variant Caller also reports the depth of coverage across amplicons to 
-facilitate the identification of any regions that may require further
-screening.
+mapping co-ordinates and primer co-ordinates. It can also optionally check the 
+primer sequences at the 5' ends to ensure that they are within a certain
+threshold score away from the expected sequence, based on a gapped alignment.
+
+It considers completely overlapping read-pairs with respect to primer-
+intervening sequence. Only when a variant is observed in both reads of a 
+read-pair does the signal contribute to a tally of read-pairs containing or not 
+containing the variant. A user-defined threshold informs the minimum number of 
+and proportion of read-pairs a variant must be observed in for a ‘call’ to be 
+made. ROVER-PCR Variant Caller also reports the depth of coverage across 
+amplicons to facilitate the identification of any regions that may require 
+further screening.
 
 --------------------------------------------------------------------------------
 Command line usage:
@@ -67,17 +72,18 @@ Command line usage:
 
 usage: rover [-h] [--version] --primers PRIMERS [--overlap OVERLAP]
              [--log FILE] --out FILE [--proportionthresh N] [--absthresh N]
-             [--qualthresh N] [--coverdir COVERDIR]
+             [--qualthresh N] [--primercheck SEQ] [--primerthresh N]
+             [--gap_penalty N] [--id_info DBSNP] [--coverdir COVERDIR]
              bams [bams ...]
 
 Consider mapped reads to amplicon sites
 
 positional arguments:
-  bams                  bam files containing mapped reads
+  bams                  BAM files containing mapped reads.
 
 optional arguments:
-  -h, --help            show this help message and exit
-  --version             show program's version number and exit
+  -h, --help            Show this help message and exit.
+  --version             Show program's version number and exit.
   --primers PRIMERS     File name of primer coordinates in TSV format.
   --overlap OVERLAP     Minimum fraction overlap of read to block region.
                         Defaults to 0.9.
@@ -89,6 +95,16 @@ optional arguments:
   --absthresh N         Only keep variants which appear in at least this many
                         read pairs. Defaults to 2.
   --qualthresh N        Minimum base quality score (phred).
+  --primercheck SEQ     Rover will check the primer sequences at the 5' ends
+                        by aligning them against the sequences in SEQ
+  --primerthresh N      If the difference in score between the primer sequence 
+                        in a read and the expected sequence is greater than N, 
+                        the read will be discarded. Defaults to 5.0.
+  --gap_penalty N       The deduction in score in the gapped alignment for gaps
+                        gap_penalty * 2 for opening a gap and gap_penalty for
+                        extending a gap. Defaults to 2.0.
+  --id_info DBSNP       The dbsnp file in .vcf.gz format and accompanying .tbi
+                        index file containing rs numbers for known variants. 
   --coverdir COVERDIR   Directory to write coverage files, defaults to current
                         working directory.
 
@@ -133,7 +149,7 @@ Explanation of the arguments:
       Required.
 
       Name of the output file created by Rover. This file contains the
-      variants called by the program. This file is in tab separated format.
+      variants called by the program. This file is in VCF format.
 
    --proportionthresh N
 
@@ -150,8 +166,8 @@ Explanation of the arguments:
           proportion = N/T
 
 
-      Note: variants must pass BOTH the proportionthresh and absthresh thresholds
-      to be kept. If they fail either test then they are binned.
+      Note: variants must pass BOTH the proportionthresh and absthresh 
+      thresholds to be kept. If they fail either test then they are binned.
 
       That is to say:
 
@@ -179,6 +195,46 @@ Explanation of the arguments:
       containing any bases with a score below 35. If the argument is not
       set then Rover will not consider quality scores in its decision
       to keep or discard a variant.
+
+   --primercheck SEQ
+
+      Optional. If provided, Rover will check the primer sequences of at the 5'
+      ends of the reads, and assign a score based on a gapped alignment using 
+      the pairwise2 module from Biopython. It will compare the primer sequence 
+      in the read with the expected primer sequences located in SEQ, which is a 
+      TSV in the following format:
+
+      primer_name   expected_sequence
+
+      Rover will also create .dat files containing statistics related to the
+      primer checking process. These files will indicate the percentage of
+      primers that are a certain score away from being an exact match. What the
+      numbers actually mean will depend on the gap_penalty specified. A 
+      directory called primer_data will need to be created, in which the .dat 
+      files for each sample will be placed. Rover will not try to create this 
+      directory. 
+
+   --primerthresh N
+
+      Optional. Defaults to 5.0.
+
+      The maximum allowed difference in score for a primer from an exact match 
+      before the read pair is discarded. 
+
+   --gap_penalty N
+
+      Optional. Defaults to 2.0. 
+
+      The score deduction for the gapped alignment used in Rover (for checking 
+      the primer sequences). A score deduction of gap_penalty * 2 is applied for
+      opening a gap and a deduction of gap_penalty for extending a gap. 
+
+   --id_info DBSNP
+
+      Optional. Rover will find the rs numbers in DBSNP and show them in the 
+      output VCF file if it can find the relevant number in DBSNP, which is a 
+      vcf format file containing rs numbers for known variants in .vcf.gz format
+      with an accompanying .tbi file (created by tabix).
  
    --coverdir COVERDIR
 
@@ -200,14 +256,29 @@ Explanation of the arguments:
 Example usage (should be all on one line)
 --------------------------------------------------------------------------------
 
-   rover --primers primer_coords.tsv --log rover_log --out variants
-         --proportionthresh 0.15 --absthresh 2 --coverdir coverage_files
-         sample1.bam sample2.bam sample3.bam
+   rover --primers primer_coords.tsv --log rover_log --out variants.vcf
+         --proportionthresh 0.15 --absthresh 2 --id_info dbsnp.vcf.gz 
+         --coverdir coverage_files sample1.bam sample2.bam sample3.bam
+
+   With primer checking:
+
+   rover --primers primer_coord.tsv --log rover_log --out variants.vcf
+         --proportionthresh 0.15 --absthresh 2 --id_info dbsnp.vcf.gz
+         --primercheck primers.tsv --primerthresh 5.0 --gap_penalty 2.0
+         --coverdir coverage_files sample1.bam sample2.bam sample3.bam
 
 This assumes that the coordinates for your primer regions are in the file
 primer_coords.tsv. The detected variants will appear in the output file
-variants. The names of the samples will be taken from the prefix of
-the bam file name, in this case "sample1" "sample2" and "sample3".
+variants.vcf. The names of the samples will be taken from the prefix of
+the bam file name, in this case "sample1" "sample2" and "sample3". 
+
+If primer checking has been enabled, .dat files will be created in both 
+the current directory and inside the directory primer_data. "total.dat" in 
+the current directory will contain statistics relating to the entire dataset, 
+while the primer_data directory will contain files "sample1.dat", 
+"sample2.dat", etc. which contain statistics relating to the individual 
+BAM files. 
+
 Coverage files containing the number of read pairs which mapped to
 each region will be output in coverage_files/sample1.coverage
 coverage_files/sample2.coverage and coverage_files/sample3.coverage.
