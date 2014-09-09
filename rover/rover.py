@@ -127,9 +127,10 @@ def get_md(read):
 #=   BAM_CEQUAL  7
 #X   BAM_CDIFF   8
 
-def read_variants(args, chrsm, pos, aligned_bases, cigar, md_string):
+def read_variants(args, chrsm, read, aligned_bases, md_string):
     """ Find all the variants in a single read (SNVs, Insertions, Deletions)."""
-    cigar_orig = cigar
+    pos = read.pos + 1
+    cigar_orig, cigar = read.cigar, read.cigar
     md_orig = md_string
     seq_index = 0
     result = []
@@ -161,16 +162,14 @@ def read_variants(args, chrsm, pos, aligned_bases, cigar, md_string):
             elif isinstance(next_md, MdMismatch):
                 # MD mismatch
                 seq_base_qual = aligned_bases[seq_index]
+                seq_base = seq_base_qual.base
+                snv = SNV(chrsm, pos, next_md.ref_base, seq_base)
                 # check if the read base is above the minimum quality score
-                if (args.qualthresh is None) or (seq_base_qual.qual >= \
-                    args.qualthresh):
-                    seq_base = seq_base_qual.base
-                    result.append(SNV(chrsm, pos, next_md.ref_base, seq_base, \
-                        '.', None))
-                else:
-                    seq_base = seq_base_qual.base
-                    result.append(SNV(chrsm, pos, next_md.ref_base, seq_base, \
-                        '.', ";qlt"))
+                if not ((args.qualthresh is None) or (seq_base_qual.qual < \
+                    args.qualthresh)):
+                    snv.filter_reason = ''.join([nts(snv.filter_reason), \
+                        ";qlt"])
+                result.append(snv)
                 cigar = [(cigar_code, cigar_segment_extent - 1)] + cigar[1:]
                 context = next_md.ref_base
                 md_string = md_string[1:]
@@ -190,13 +189,12 @@ def read_variants(args, chrsm, pos, aligned_bases, cigar, md_string):
             cigar_segment_extent]
             seq_bases = ''.join([b.base for b in seq_bases_quals])
             # check that all the bases are above the minimum quality threshold
-            if (args.qualthresh is None) or all([b.qual >= args.qualthresh for \
-                b in seq_bases_quals]):
-                result.append(Insertion(chrsm, pos, seq_bases, '.', None, \
-                    context))
-            else:
-                result.append(Insertion(chrsm, pos, seq_bases, '.', ";qlt", \
-                    context))
+            insertion = Insertion(chrsm, pos, seq_bases, context)
+            if not ((args.qualthresh is None) or all([b.qual >= \
+                args.qualthresh for b in seq_bases_quals])):
+                insertion.filter_reason = ''.join([nts(insertion.\
+                    filter_reason), ";qlt"])
+            result.append(insertion)
             cigar = cigar[1:]
             seq_index += cigar_segment_extent
             # pos does not change
@@ -204,12 +202,12 @@ def read_variants(args, chrsm, pos, aligned_bases, cigar, md_string):
             # Deletion
             if isinstance(next_md, MdDeletion):
                 seq_base = aligned_bases[seq_index]
-                if seq_base.qual >= args.qualthresh:
-                    result.append(Deletion(chrsm, pos, next_md.ref_bases, '.', \
-                        None, context))
-                else:
-                    result.append(Deletion(chrsm, pos, next_md.ref_bases, '.', \
-                        ";qlt", context))
+                deletion = Deletion(chrsm, pos, next_md.ref_bases, context)
+                if not ((args.qualthresh is None) or (seq_base.qual >= \
+                    args.qualthresh)):
+                    deletion.filter_reason = ''.join([nts(deletion.\
+                    filter_reason), ";qlt"])
+                result.append(deletion)
                 context = next_md.ref_bases[-1]
                 md_string = md_string[1:]
                 cigar = cigar[1:]
@@ -279,13 +277,13 @@ class Base(object):
 
 class SNV(object):
     """ Single nucleotide variant. Bases are represented as DNA strings."""
-    def __init__(self, chrsm, pos, ref_base, seq_base, qual, filter_reason):
+    def __init__(self, chrsm, pos, ref_base, seq_base):
         self.chrsm = chrsm
         self.pos = pos
         self.ref_base = ref_base
         self.seq_base = seq_base
-        self.qual = qual
-        self.filter_reason = filter_reason
+        self.qual = '.'
+        self.filter_reason = None
         self.info = []
     def __str__(self):
         return "S: {} {} {} {}".format(self.chrsm, self.pos, self.ref_base, \
@@ -321,13 +319,12 @@ class SNV(object):
 
 class Insertion(object):
     """ Insertion. Bases are represented as DNA strings."""
-    def __init__(self, chrsm, pos, inserted_bases, qual, filter_reason, \
-        context):
+    def __init__(self, chrsm, pos, inserted_bases, context):
         self.chrsm = chrsm
         self.pos = pos
         self.inserted_bases = inserted_bases
-        self.qual = qual
-        self.filter_reason = filter_reason
+        self.qual = '.'
+        self.filter_reason = None
         self.info = []
         self.context = context
         if self.context == None:
@@ -372,12 +369,12 @@ class Insertion(object):
 
 class Deletion(object):
     """ Deletion. Bases are represented as DNA strings."""
-    def __init__(self, chrsm, pos, deleted_bases, qual, filter_reason, context):
+    def __init__(self, chrsm, pos, deleted_bases, context):
         self.chrsm = chrsm
         self.pos = pos
         self.deleted_bases = deleted_bases
-        self.qual = qual
-        self.filter_reason = filter_reason
+        self.qual = '.'
+        self.filter_reason = None
         self.info = []
         self.context = context
         if self.context == None:
@@ -629,10 +626,10 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
                     read1.qqual)
                 read2_bases = make_base_seq(read2.qname, read2.query, \
                     read2.qqual)
-                variants1 = read_variants(args, chrsm, read1.pos \
-                    + 1, read1_bases, read1.cigar, parse_md(get_md(read1), []))
-                variants2 = read_variants(args, chrsm, read2.pos \
-                    + 1, read2_bases, read2.cigar, parse_md(get_md(read2), []))
+                variants1 = read_variants(args, chrsm, read1, read1_bases, \
+                    parse_md(get_md(read1), []))
+                variants2 = read_variants(args, chrsm, read2, read2_bases, \
+                    parse_md(get_md(read2), []))
                 set_variants1 = set(variants1)
                 set_variants2 = set(variants2)
 
