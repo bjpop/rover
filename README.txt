@@ -74,7 +74,7 @@ usage: rover [-h] [--version] --primers PRIMERS [--overlap OVERLAP]
              [--log FILE] --out FILE [--proportionthresh N] [--absthresh N]
              [--qualthresh N] [--primercheck SEQ] [--primerthresh N]
              [--gap_penalty N] [--id_info DBSNP] [--coverdir COVERDIR]
-             bams [bams ...]
+             [--datadir DATADIR] bams [bams ...]
 
 Consider mapped reads to amplicon sites
 
@@ -107,6 +107,8 @@ optional arguments:
                         index file containing rs numbers for known variants. 
   --coverdir COVERDIR   Directory to write coverage files, defaults to current
                         working directory.
+  --datadir DATADIR     Directory to write data files, defaults to current
+                        working directory. 
 
 Explanation of the arguments:
 
@@ -248,7 +250,18 @@ Explanation of the arguments:
 
       chr     block_start     block_end       num_pairs
 
-   bams [bams ...] 
+    --datadir DATADIR
+
+      Optional. Defaults to current working directory. 
+
+      Only relevant if primer checking is enabled. Data files will be created
+      in both the current directory and inside the directory DATADIR.
+      "total.dat" in the current directory will contain statistics relating
+      to the entire dataset, while the DATADIR directory will contain files
+      "sample1.dat", "sample2.dat", etc. which contain statistics relating
+      to the individual BAM files.
+
+   bams [bams ...]
 
       One or more BAM files containing mapped reads.
 
@@ -265,19 +278,13 @@ Example usage (should be all on one line)
    rover --primers primer_coord.tsv --log rover_log --out variants.vcf
          --proportionthresh 0.15 --absthresh 2 --id_info dbsnp.vcf.gz
          --primercheck primers.tsv --primerthresh 5.0 --gap_penalty 2.0
-         --coverdir coverage_files sample1.bam sample2.bam sample3.bam
+         --coverdir coverage_files --datadir primer_data
+         sample1.bam sample2.bam sample3.bam
 
 This assumes that the coordinates for your primer regions are in the file
 primer_coords.tsv. The detected variants will appear in the output file
 variants.vcf. The names of the samples will be taken from the prefix of
 the bam file name, in this case "sample1" "sample2" and "sample3". 
-
-If primer checking has been enabled, .dat files will be created in both 
-the current directory and inside the directory primer_data. "total.dat" in 
-the current directory will contain statistics relating to the entire dataset, 
-while the primer_data directory will contain files "sample1.dat", 
-"sample2.dat", etc. which contain statistics relating to the individual 
-BAM files. 
 
 Coverage files containing the number of read pairs which mapped to
 each region will be output in coverage_files/sample1.coverage

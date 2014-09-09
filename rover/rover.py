@@ -72,6 +72,9 @@ def parse_args():
     parser.add_argument('--coverdir', required=False, \
         help='Directory to write coverage files, defaults to current working \
         directory.')
+    parser.add_argument('--datadir', required=False, \
+        help='Directory to write data files, defaults to current working \
+        directory.')
     return parser.parse_args()
 
 def get_block_coords(primers_file):
@@ -123,7 +126,6 @@ def get_md(read):
 #P   BAM_CPAD    6
 #=   BAM_CEQUAL  7
 #X   BAM_CDIFF   8
-
 
 def read_variants(args, chrsm, pos, aligned_bases, cigar, md_string):
     """ Find all the variants in a single read (SNVs, Insertions, Deletions)."""
@@ -305,7 +307,7 @@ class SNV(object):
         return self.seq_base
     def fil(self):
         """ Return "PASS" if the SNV is not filtered, or the reason for
-        for being discarded otherwise."""
+        being discarded otherwise."""
         if self.filter_reason is None:
             return "PASS"
         else:
@@ -355,8 +357,8 @@ class Insertion(object):
         """ ALT (inserted) bases."""
         return self.context + self.inserted_bases
     def fil(self):
-        """ Return "PASS" if the SNV is not filtered, or the reason for
-        for being discarded otherwise."""
+        """ Return "PASS" if the Insertion is not filtered, or the reason for
+        being discarded otherwise."""
         if self.filter_reason is None:
             return "PASS"
         else:
@@ -405,8 +407,8 @@ class Deletion(object):
         """ ALT base."""
         return self.context
     def fil(self):
-        """ Return "PASS" if the SNV is not filtered, or the reason for
-        for being discarded otherwise."""
+        """ Return "PASS" if the Deletion is not filtered, or the reason for
+        being discarded otherwise."""
         if self.filter_reason is None:
             return "PASS"
         else:
@@ -449,7 +451,7 @@ class MdDeletion(object):
 def parse_md(md_string, result):
     """ Read one element of the md string."""
     if md_string:
-        number_match = re.match('([0-9]+)(.*)', md_string)
+        number_match = re.match(r'([0-9]+)(.*)', md_string)
         if number_match is not None:
             number_groups = number_match.groups()
             number = int(number_groups[0])
@@ -460,7 +462,7 @@ def parse_md(md_string, result):
 def parse_md_snv(md_string, result):
     """ Read a single nucleotide variant from the md string."""
     if md_string:
-        snv_match = re.match('([A-Z])(.*)', md_string)
+        snv_match = re.match(r'([A-Z])(.*)', md_string)
         if snv_match is not None:
             snv_groups = snv_match.groups()
             ref_base = snv_groups[0]
@@ -497,7 +499,7 @@ def proportion_overlap(block_start, block_end, read):
     read_end = read.pos + read.rlen - 1
     if read.rlen <= 0:
         # read is degenerate, zero length
-        # treat it as no overla$p
+        # treat it as no overlap
         logging.warn("Degenerate read: {}, length: {}".format(read.qname, \
             read.rlen))
         return 0.0
@@ -875,8 +877,9 @@ def process_bams(args):
                 exit('Cannot deduce sample name from bam filename {}'\
                     .format(bam_filename))
             block_data_filename = sample + ".dat"
-            block_data_filename = os.path.join("primer_data", \
-                block_data_filename)
+            if args.datadir is not None:
+                block_data_filename = os.path.join("primer_data", \
+                    block_data_filename)
             with open(block_data_filename, 'w') as graph_data:
                 with pysam.Samfile(bam_filename, "rb") as bam:
                     logging.info("Processing bam file {}".format(bam_filename))
