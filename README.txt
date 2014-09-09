@@ -255,11 +255,9 @@ Explanation of the arguments:
       Optional. Defaults to current working directory. 
 
       Only relevant if primer checking is enabled. Data files will be created
-      in both the current directory and inside the directory DATADIR.
-      "total.dat" in the current directory will contain statistics relating
-      to the entire dataset, while the DATADIR directory will contain files
-      "sample1.dat", "sample2.dat", etc. which contain statistics relating
-      to the individual BAM files.
+      inside the directory DATADIR. "total.dat" contain statistics relating
+      to the entire dataset, while "sample1.dat", "sample2.dat", etc. will
+      contain statistics relating to the individual BAM files.
 
    bams [bams ...]
 
@@ -285,6 +283,11 @@ This assumes that the coordinates for your primer regions are in the file
 primer_coords.tsv. The detected variants will appear in the output file
 variants.vcf. The names of the samples will be taken from the prefix of
 the bam file name, in this case "sample1" "sample2" and "sample3". 
+
+If primer checking is enabled, the data file for the entire dataset will
+be called will be output in primer_data/total.dat, and data files for
+the individual BAM files will be output in primer_data/sample1.dat, 
+primer_data/sample2.dat and primer_data/sample3.dat.
 
 Coverage files containing the number of read pairs which mapped to
 each region will be output in coverage_files/sample1.coverage

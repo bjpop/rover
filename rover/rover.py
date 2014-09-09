@@ -593,7 +593,8 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
     coverage_info = []
     total_scores = {}
     data.write('\t'.join(["Primer name", "0.0", "1.0", "2.0", "3.0", "4.0", \
-        "5.0", "6.0", "7.0", "8.0", "9.0"]))
+        "5.0", "6.0", "7.0", "8.0", "9.0", "10.0", "11.0", "12.0", "13.0", \
+        "14.0", "15.0"]))
     data.write('\n')
     for block_info in block_coords:
         # process all the reads in one block
@@ -770,7 +771,7 @@ def write_block_data(block_info, forward_scores, reverse_scores, data):
     """ Write data to .dat file for forward and reverse primers."""
     data.write(block_info[3] + '\t')
     forward_total = sum(forward_scores.values())
-    for mismatch in range(0, 10):
+    for mismatch in range(0, 16):
         if float(mismatch) in forward_scores.keys():
             data.write("{:.2%}".format(forward_scores[mismatch]/\
                 float(forward_total)) + '\t')
@@ -780,7 +781,7 @@ def write_block_data(block_info, forward_scores, reverse_scores, data):
 
     data.write(block_info[4] + '\t')
     reverse_total = sum(reverse_scores.values())
-    for mismatch in range(0, 10):
+    for mismatch in range(0, 16):
         if float(mismatch) in reverse_scores.keys():
             data.write("{:.2%}".format(reverse_scores[mismatch]/\
                 float(reverse_total)) + '\t')
@@ -788,15 +789,15 @@ def write_block_data(block_info, forward_scores, reverse_scores, data):
             data.write("-" + '\t')
     data.write("\n")
 
-def write_total_data(sample, total_scores, data2):
+def write_total_data(sample, total_scores, total_data_file):
     """ Write data to .dat file for total primers."""
-    data2.write("# " + sample + '\n')
-    total2 = sum(total_scores.values())
+    total_data_file.write("# " + sample + '\n')
+    total = sum(total_scores.values())
     for mismatch in sorted(total_scores):
-        if mismatch < 10:
-            data2.write(str(mismatch) + '\t' + "{:.2%}"\
-                .format(total_scores[mismatch]/float(total2)) + '\n')
-    data2.write('\n')
+        if mismatch < 16:
+            total_data_file.write(str(mismatch) + '\t' + "{:.2%}"\
+                .format(total_scores[mismatch]/float(total)) + '\n')
+    total_data_file.write('\n')
 
 def write_metadata(args, vcf_file):
     """ Write the opening lines of metadata to the vcf file."""
@@ -851,7 +852,9 @@ def process_bams(args):
         for primer in primer_info:
             primer_sequence[primer[0]] = primer[1]
     with open(args.out, "w") as kept_variants_file:
-        graph_total_data = open("total.dat", "w")
+        if args.datadir:
+            total_data_filename = os.path.join(args.datadir, "total.dat")
+        total_data = open(total_data_filename, "w")
         write_metadata(args, kept_variants_file)
         if args.id_info:
             vcf_reader = vcf.Reader(filename=args.id_info)
@@ -866,14 +869,14 @@ def process_bams(args):
                     .format(bam_filename))
             block_data_filename = sample + ".dat"
             if args.datadir is not None:
-                block_data_filename = os.path.join("primer_data", \
+                block_data_filename = os.path.join(args.datadir, \
                     block_data_filename)
-            with open(block_data_filename, 'w') as graph_data:
+            with open(block_data_filename, 'w') as bam_data:
                 with pysam.Samfile(bam_filename, "rb") as bam:
                     logging.info("Processing bam file {}".format(bam_filename))
                     process_blocks(args, kept_variants_file, bam, sample, \
-                        block_coords, primer_sequence, graph_data, \
-                        graph_total_data, vcf_reader)
+                        block_coords, primer_sequence, bam_data, \
+                        total_data, vcf_reader)
 
 def main():
     """ Main function which parses the arguments provided and initialises
