@@ -313,9 +313,6 @@ class SNV(object):
     def position(self):
         """ SNV POS."""
         return self.pos
-    def quality(self):
-        """ Base quality score."""
-        return self.qual
 
 class Insertion(object):
     """ Insertion. Bases are represented as DNA strings."""
@@ -363,9 +360,6 @@ class Insertion(object):
     def position(self):
         """ Insertion POS."""
         return self.pos - 1
-    def quality(self):
-        """ Insertion quality score."""
-        return self.qual
 
 class Deletion(object):
     """ Deletion. Bases are represented as DNA strings."""
@@ -413,9 +407,6 @@ class Deletion(object):
     def position(self):
         """ Deletion POS."""
         return self.pos - 1
-    def quality(self):
-        """ Deletion quality score."""
-        return self.qual
 
 class MdMatch(object):
     """ An element of the md string corresponding to a match."""
@@ -525,11 +516,11 @@ def write_variant(vcf_file, variant, id_info, args):
                 record_info = record
     if info == 1:
         vcf_file.write('\t'.join([variant.chrsm, str(variant.position()), \
-str(record_info.ID), variant.ref(), variant.alt(), variant.quality(), variant\
+str(record_info.ID), variant.ref(), variant.alt(), variant.qual, variant\
 .fil(), ';'.join(variant.info)]) + '\n')
     else:
         vcf_file.write('\t'.join([variant.chrsm, str(variant.position()), \
-'.', variant.ref(), variant.alt(), variant.quality(), variant.fil(), ';'\
+'.', variant.ref(), variant.alt(), variant.qual, variant.fil(), ';'\
 .join(variant.info)]) + '\n')
 
 def nts(none_string):
