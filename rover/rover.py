@@ -854,7 +854,9 @@ def process_bams(args):
     with open(args.out, "w") as kept_variants_file:
         if args.datadir:
             total_data_filename = os.path.join(args.datadir, "total.dat")
-        total_data = open(total_data_filename, "w")
+            total_data = open(total_data_filename, "w")
+        else:
+            total_data = None
         write_metadata(args, kept_variants_file)
         if args.id_info:
             vcf_reader = vcf.Reader(filename=args.id_info)
