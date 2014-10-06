@@ -851,12 +851,12 @@ def process_bams(args):
         primer_info = get_primer_sequence(args.primercheck)
         for primer in primer_info:
             primer_sequence[primer[0]] = primer[1]
-    with open(args.out, "w") as kept_variants_file:
+    with open(args.out, 'w') as kept_variants_file:
         if args.datadir:
             total_data_filename = os.path.join(args.datadir, "total.dat")
-            total_data = open(total_data_filename, "w")
+            total_data = open(total_data_filename, 'w')
         else:
-            total_data = None
+            total_data = open("total.dat", 'w')
         write_metadata(args, kept_variants_file)
         if args.id_info:
             vcf_reader = vcf.Reader(filename=args.id_info)
@@ -888,12 +888,12 @@ def main():
         logfile = sys.stdout
     else:
         logfile = args.log
-    logging.basicConfig(
-        filename=logfile,
-        level=logging.DEBUG,
-        filemode='w',
-        format='%(asctime)s %(message)s',
-        datefmt='%m/%d/%Y %H:%M:%S')
+        logging.basicConfig(
+            filename=logfile,
+            level=logging.DEBUG,
+            filemode='w',
+            format='%(asctime)s %(message)s',
+            datefmt='%m/%d/%Y %H:%M:%S')
     logging.info('Program started')
     logging.info('Command line: {0}'.format(' '.join(sys.argv)))
     process_bams(args)
