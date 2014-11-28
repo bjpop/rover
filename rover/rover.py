@@ -592,10 +592,11 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
     information to the log file and coverage files."""
     coverage_info = []
     total_scores = {}
-    data.write('\t'.join(["Primer name", "0.0", "1.0", "2.0", "3.0", "4.0", \
-        "5.0", "6.0", "7.0", "8.0", "9.0", "10.0", "11.0", "12.0", "13.0", \
-        "14.0", "15.0"]))
-    data.write('\n')
+    if args.primercheck:
+        data.write('\t'.join(["Primer name", "0.0", "1.0", "2.0", "3.0", \
+            "4.0", "5.0", "6.0", "7.0", "8.0", "9.0", "10.0", "11.0", "12.0", \
+            "13.0", "14.0", "15.0"]))
+        data.write('\n')
     for block_info in block_coords:
         # process all the reads in one block
         chrsm, start, end = block_info[:3]
@@ -654,7 +655,7 @@ def process_blocks(args, kept_variants_file, bam, sample, block_coords, \
 start position".format(read_name))
                         discard = 2
                         num_unexpected += 1
-                        num_pairs -= 1
+                        #num_pairs -= 1
 
                     if discard == 0:
                         forward_score = forward_check
@@ -683,7 +684,7 @@ start position".format(read_name))
                     # both reads were discarded as a result
                     logging.warning("Read {} discarded due to variant primer \
 sequence".format(read_name))
-                    num_pairs -= 1
+                    #num_pairs -= 1
                     num_discards += 1
             else:
                 logging.warning("Read {} with more than 2".format(read_name))
@@ -852,11 +853,14 @@ def process_bams(args):
         for primer in primer_info:
             primer_sequence[primer[0]] = primer[1]
     with open(args.out, 'w') as kept_variants_file:
-        if args.datadir:
-            total_data_filename = os.path.join(args.datadir, "total.dat")
-            total_data = open(total_data_filename, 'w')
+        if args.primercheck:
+            if args.datadir:
+                total_data_filename = os.path.join(args.datadir, "total.dat")
+                total_data = open(total_data_filename, 'w')
+            else:
+                total_data = open("total.dat", 'w')
         else:
-            total_data = open("total.dat", 'w')
+            total_data = None
         write_metadata(args, kept_variants_file)
         if args.id_info:
             vcf_reader = vcf.Reader(filename=args.id_info)
@@ -873,12 +877,14 @@ def process_bams(args):
             if args.datadir is not None:
                 block_data_filename = os.path.join(args.datadir, \
                     block_data_filename)
-            with open(block_data_filename, 'w') as bam_data:
-                with pysam.Samfile(bam_filename, "rb") as bam:
-                    logging.info("Processing bam file {}".format(bam_filename))
-                    process_blocks(args, kept_variants_file, bam, sample, \
-                        block_coords, primer_sequence, bam_data, \
-                        total_data, vcf_reader)
+            # with open(block_data_filename, 'w') as bam_data:
+            bam_data = open(block_data_filename, 'w') \
+            if args.primercheck else None
+            with pysam.Samfile(bam_filename, "rb") as bam:
+                logging.info("Processing bam file {}".format(bam_filename))
+                process_blocks(args, kept_variants_file, bam, sample, \
+                    block_coords, primer_sequence, bam_data, \
+                    total_data, vcf_reader)
 
 def main():
     """ Main function which parses the arguments provided and initialises
