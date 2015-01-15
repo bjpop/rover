@@ -3,7 +3,7 @@ Rover - ROVER-PCR Variant Caller: read-pair overlap considerate variant-calling
 software for PCR-based massively parallel sequencing datasets
 --------------------------------------------------------------------------------
 
-Version: 1.2.1
+Version: 2.0.0
 
 Authors: Bernard J Pope (2,3), Tú Nguyen-Dumont (1), Fleur Hammet (1), 
          Daniel J Park (1) and Roger Li
