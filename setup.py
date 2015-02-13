@@ -36,6 +36,8 @@ setup(
         'depth of coverage across amplicons to facilitate the identification '
         'of any regions that may require further screening.'),
     install_requires=[
-        "pysam >= 0.7.5"
+        "pysam >= 0.7.5",
+        "biopython >= 1.64",
+        "PyVCF >= 0.6.7"
     ],
 )
