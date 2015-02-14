@@ -94,7 +94,12 @@ def lookup_reads(min_overlap, bam, chrsm, start_col, end_col):
     total_reads = 0
     overlapping_reads = 0
     read_pairs = {}
-    for read in bam.fetch(chrsm, start_col, end_col+1):
+    try:
+        reads = bam.fetch(chrsm, start_col, end_col+1)
+    except ValueError:
+        logging.warning("bam.fetch failed on {} {} {}".format(chr, startCol, endCol+1))
+        reads = []
+    for read in reads:
         total_reads += 1
         # only keep reads which overlap with the block region by a
         # certain proportion
