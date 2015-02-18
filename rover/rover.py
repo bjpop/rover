@@ -97,7 +97,7 @@ def lookup_reads(min_overlap, bam, chrsm, start_col, end_col):
     try:
         reads = bam.fetch(chrsm, start_col, end_col+1)
     except ValueError:
-        logging.warning("bam.fetch failed on {} {} {}".format(chr, startCol, endCol+1))
+        logging.warning("Failed to fetch reads for chrom: {} start: {} end: {}".format(chrsm, start_col, end_col+1))
         reads = []
     for read in reads:
         total_reads += 1
