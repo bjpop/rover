@@ -227,7 +227,8 @@ def read_variants(args, chrsm, read, aligned_bases, md_string):
             context = 'S'
             md_string = md_string[1:]
             cigar = cigar[1:]
-            seq_index += cigar_segment_extent
+            # XXX soft clipped reads do not appear in the aligned sequence
+            #seq_index += cigar_segment_extent
         elif cigar_code == 5:
             # hard clipping
             context = 'H'
